@@ -67,7 +67,15 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npm publish --provenance --access public
+      - name: Publish npm package if this version is new
+        run: |
+          package="$(node -p 'require("./package.json").name')"
+          version="$(node -p 'require("./package.json").version')"
+          if npm view "$package@$version" version >/dev/null 2>&1; then
+            echo "$package@$version is already published; continuing the release."
+          else
+            npm publish --provenance --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
