@@ -19,7 +19,7 @@ const INSTALL_URL = "https://github.com/SASUKE40/pi-daemon/releases/latest/downl
 async function main(): Promise<void> {
   const [command = "status", ...args] = process.argv.slice(2);
   switch (command) {
-    case "setup": await setup(); return;
+    case "setup": await setup(args.includes("--from-installer")); return;
     case "status": await status(); return;
     case "doctor": await doctor(); return;
     case "logs": await logs((args[0] || "all") as "sessiond" | "web" | "tunnel" | "all"); return;
@@ -36,13 +36,18 @@ async function main(): Promise<void> {
   }
 }
 
-async function setup(): Promise<void> {
+async function setup(fromInstaller = false): Promise<void> {
   assertSupportedPlatform();
   const prompt = new TerminalPrompter();
   try {
     prompt.print(`Pi Daemon ${VERSION} setup`);
     prompt.print("This grants the authenticated mobile user access to Pi's coding tools.");
-    if (!await prompt.confirm("Any previously exposed Cloudflare tunnel token has been rotated", false)) throw new Error("Rotate the exposed tunnel token before deployment, then run setup again");
+    if (fromInstaller) prompt.print("Account setup is running on this board. Browser links may be opened on another device.");
+    const paths = getAppPaths();
+    const current = await loadConfig().catch(() => defaultConfig());
+    if (await exists(paths.tunnelTokenFile) && await prompt.confirm("Has the existing Cloudflare connector token been exposed since it was last rotated", false)) {
+      throw new Error("Rotate the exposed connector token in Cloudflare, then run setup again");
+    }
     const pi = process.env.PI_DAEMON_PI || await findExecutable("pi");
     if (!pi) throw new Error("Pi CLI is missing. Re-run the one-line installer.");
 
@@ -52,11 +57,13 @@ async function setup(): Promise<void> {
       if (result.status !== 0) throw new Error("Pi provider setup did not exit cleanly");
     }
 
-    const current = await loadConfig().catch(() => defaultConfig());
     const defaultCwd = await prompt.question("Default working directory", current.defaultCwd);
     if (!(await stat(defaultCwd)).isDirectory()) throw new Error("Default working directory does not exist");
+    prompt.print("\nCloudflare login");
+    prompt.print("Open https://dash.cloudflare.com/profile/api-tokens and create a scoped API token.");
     prompt.print("Create a scoped Cloudflare API token with Account/Zone Read, Tunnel Write, DNS Write, Access Apps/Policies Write, and Access Organizations/Identity Providers Write.");
-    const apiToken = await prompt.secret("Cloudflare API token (used once, never saved)");
+    prompt.print("The scoped API token is required because cloudflared's browser login cannot configure the Access app and exact-email policy.");
+    const apiToken = await prompt.secret("Cloudflare API token (paste on this board; used once, never saved)");
     const cloudflare = new CloudflareClient(apiToken);
     await cloudflare.verify();
     const account = await selectAccount(await cloudflare.accounts(), prompt);
@@ -77,7 +84,6 @@ async function setup(): Promise<void> {
       ...(current.cloudflare ? { previous: current.cloudflare } : {}),
     });
 
-    const paths = getAppPaths();
     await mkdir(paths.configDir, { recursive: true, mode: 0o700 });
     await writeFile(paths.tunnelTokenFile, `${provisioned.tunnelToken}\n`, { mode: 0o600 });
     await chmod(paths.tunnelTokenFile, 0o600);

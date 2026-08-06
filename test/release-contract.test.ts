@@ -21,6 +21,7 @@ describe("release contract", () => {
     expect(installer).toContain(`PI_VERSION="${manifest.pi}"`);
     expect(installer).toContain(`CLOUDFLARED_VERSION="${manifest.cloudflared.version}"`);
     expect(installer).toContain(`DAEMON_ASSET="edward40-pi-daemon-\${VERSION}.tgz"`);
+    expect(installer).toContain("setup --from-installer </dev/tty >/dev/tty");
     for (const asset of Object.values(manifest.node.assets)) expect(workflow).toContain(String(asset));
   });
 
