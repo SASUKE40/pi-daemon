@@ -1,0 +1,89 @@
+{
+  "name": "@edward40/pi-daemon",
+  "version": "0.1.0",
+  "description": "Long-running Pi coding agent with a mobile web UI secured by Cloudflare Access",
+  "author": "Edward Evans <sasuke688848@gmail.com>",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SASUKE40/pi-daemon.git"
+  },
+  "homepage": "https://github.com/SASUKE40/pi-daemon#readme",
+  "bugs": {
+    "url": "https://github.com/SASUKE40/pi-daemon/issues"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "pi-daemon": "dist/cli.js",
+    "pi-daemon-sessiond": "dist/sessiond.js",
+    "pi-daemon-web": "dist/web.js"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.js.map",
+    "dist/**/*.d.ts",
+    "public",
+    "installer",
+    "services",
+    "compatibility.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "clean": "rm -rf dist public coverage release",
+    "build:server": "tsc -p tsconfig.build.json",
+    "build:web": "vite build",
+    "build": "npm run build:server && npm run build:web",
+    "dev:sessiond": "tsx src/sessiond.ts",
+    "dev:web": "vite --host 127.0.0.1",
+    "start:web": "node dist/web.js",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --config vitest.config.ts",
+    "test:watch": "vitest --config vitest.config.ts",
+    "check": "npm run typecheck && npm run build && npm test",
+    "pack:check": "npm pack --dry-run",
+    "electron:install": "npm --prefix electron ci",
+    "electron:dir": "npm run build && electron/node_modules/.bin/electron-builder --config electron/electron-builder.yml --dir --mac",
+    "electron:dist": "npm run build && npm prune --omit=dev && electron/node_modules/.bin/electron-builder --config electron/electron-builder.yml --mac zip"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@edward40/pi-computer-use": "0.1.1",
+    "@fastify/multipart": "10.1.0",
+    "@fastify/static": "10.1.2",
+    "@fastify/websocket": "11.3.0",
+    "@trycua/cua-driver": "0.18.0",
+    "fastify": "5.11.2",
+    "jose": "6.1.0",
+    "lit": "3.3.1",
+    "qrcode-terminal": "0.12.0",
+    "typebox": "1.3.10",
+    "ws": "8.21.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "@types/qrcode-terminal": "0.12.2",
+    "@types/ws": "8.18.1",
+    "tsx": "4.20.5",
+    "typescript": "5.9.2",
+    "vite": "7.3.6",
+    "vitest": "3.2.7"
+  },
+  "overrides": {
+    "undici": "8.9.0"
+  },
+  "allowScripts": {
+    "@google/genai": false,
+    "esbuild": true,
+    "fsevents": false,
+    "protobufjs": true
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "main": "dist/electron-main.js"
+}

@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: test "v$(node -p 'require(\"./package.json\").version')" = "${GITHUB_REF_NAME}"
+
+  mac-app:
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run electron:install
+      - run: npm run build
+      - run: npm prune --omit=dev
+      - run: electron/node_modules/.bin/electron-builder --config electron/electron-builder.yml --mac zip --${{ matrix.arch }}
+        env:
+          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-app-${{ matrix.arch }}
+          path: release/*.zip
+
+  publish-npm:
+    needs: [validate, mac-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    needs: [publish-npm, mac-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mac-app-*
+          path: artifacts
+          merge-multiple: true
+      - name: Verify both macOS architectures
+        run: |
+          test "$(find artifacts -maxdepth 1 -name 'Pi-Daemon-*-mac.zip' | wc -l | tr -d ' ')" = 2
+      - name: Download pinned cloudflared assets
+        run: |
+          for asset in cloudflared-darwin-arm64.tgz cloudflared-darwin-amd64.tgz cloudflared-linux-arm64 cloudflared-linux-amd64; do
+            curl -fsSLO "https://github.com/cloudflare/cloudflared/releases/download/2026.7.3/$asset"
+          done
+          mv cloudflared-* artifacts/
+      - name: Download and verify managed Node.js assets
+        run: |
+          curl -fsSLO https://nodejs.org/dist/v22.19.0/SHASUMS256.txt
+          for asset in node-v22.19.0-darwin-arm64.tar.gz node-v22.19.0-darwin-x64.tar.gz node-v22.19.0-linux-arm64.tar.gz node-v22.19.0-linux-x64.tar.gz; do
+            curl -fsSLO "https://nodejs.org/dist/v22.19.0/$asset"
+            grep "  $asset\$" SHASUMS256.txt | sha256sum -c -
+          done
+          mv node-v22.19.0-* artifacts/
+      - name: Assemble checksummed release payload
+        run: |
+          cp installer/install.sh artifacts/install.sh
+          cp compatibility.json artifacts/compatibility.json
+          (cd artifacts && sha256sum Pi-Daemon-* cloudflared-* node-v22.19.0-* compatibility.json install.sh > SHA256SUMS)
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "node": {
+    "version": "22.19.0",
+    "minimum": "22.19.0",
+    "assets": {
+      "darwin-arm64": "node-v22.19.0-darwin-arm64.tar.gz",
+      "darwin-x64": "node-v22.19.0-darwin-x64.tar.gz",
+      "linux-arm64": "node-v22.19.0-linux-arm64.tar.gz",
+      "linux-x64": "node-v22.19.0-linux-x64.tar.gz"
+    }
+  },
+  "pi": "0.83.0",
+  "computerUse": "0.1.1",
+  "electron": "43.3.0",
+  "cloudflared": {
+    "version": "2026.7.3",
+    "minimumTokenFileVersion": "2025.4.0",
+    "assets": {
+      "darwin-arm64": "cloudflared-darwin-arm64.tgz",
+      "darwin-x64": "cloudflared-darwin-amd64.tgz",
+      "linux-arm64": "cloudflared-linux-arm64",
+      "linux-x64": "cloudflared-linux-amd64"
+    }
+  }
+}
