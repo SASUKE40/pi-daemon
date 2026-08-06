@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-VERSION="${PI_DAEMON_VERSION:-0.1.3}"
+VERSION="${PI_DAEMON_VERSION:-0.1.4}"
 NODE_VERSION="22.19.0"
 PI_VERSION="0.83.0"
 CLOUDFLARED_VERSION="2026.7.3"
@@ -172,16 +172,14 @@ if [ "$install_pi" = true ]; then
   [ -z "$existing_pi" ] || printf 'Existing Pi is not %s; exposing the managed Pi at %s/pi.\n' "$PI_VERSION" "$BIN_DIR"
 fi
 
-use_existing_cloudflared=false
-if command -v cloudflared >/dev/null 2>&1; then
-  installed_version="$(cloudflared --version 2>/dev/null | sed -n 's/.*version \([0-9][0-9.]*\).*/\1/p')"
-  if [ -n "$installed_version" ] && "$SELECTED_NODE" -e 'const a=process.argv[1].split(".").map(Number),b=[2025,4,0];for(let i=0;i<3;i++){if((a[i]||0)>b[i])process.exit(0);if((a[i]||0)<b[i])process.exit(1)}' "$installed_version"; then
-    use_existing_cloudflared=true
-  fi
+existing_cloudflared="$(command -v cloudflared 2>/dev/null || true)"
+if [ -z "$existing_cloudflared" ] && [ -x "$TOOLS_DIR/cloudflared" ]; then
+  existing_cloudflared="$TOOLS_DIR/cloudflared"
 fi
 
-if [ "$use_existing_cloudflared" = true ]; then
-  CF_BIN="$(command -v cloudflared)"
+if [ -n "$existing_cloudflared" ]; then
+  CF_BIN="$existing_cloudflared"
+  printf 'Found cloudflared at %s; skipping cloudflared installation.\n' "$CF_BIN"
 else
   printf 'Installing cloudflared %s…\n' "$CLOUDFLARED_VERSION"
   curl -fsSL "$RELEASE_BASE/$CF_ASSET" -o "$TMP_DIR/$CF_ASSET"
