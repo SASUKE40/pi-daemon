@@ -11,8 +11,6 @@
     }
   },
   "pi": "0.83.0",
-  "computerUse": "0.1.1",
-  "electron": "43.3.0",
   "cloudflared": {
     "version": "2026.7.3",
     "minimumTokenFileVersion": "2025.4.0",

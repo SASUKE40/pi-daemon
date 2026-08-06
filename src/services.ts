@@ -1,5 +1,4 @@
-import { constants } from "node:fs";
-import { access, chmod, mkdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
@@ -15,18 +14,15 @@ export interface ServiceCommands {
   sessiondScript: string;
   webScript: string;
   cloudflared: string;
-  macAppExecutable?: string;
 }
 
 export function currentServiceCommands(cloudflared: string): ServiceCommands {
   const here = dirname(fileURLToPath(import.meta.url));
-  const macAppExecutable = join(homedir(), "Applications", "Pi Daemon.app", "Contents", "MacOS", "Pi Daemon");
   return {
     node: process.execPath,
     sessiondScript: join(here, "sessiond.js"),
     webScript: join(here, "web.js"),
     cloudflared,
-    macAppExecutable,
   };
 }
 
@@ -42,10 +38,8 @@ export function renderSystemdServices(commands: ServiceCommands): Record<string,
 
 export function renderLaunchAgents(commands: ServiceCommands): Record<string, string> {
   const paths = getAppPaths();
-  const sessionProgram = commands.macAppExecutable || commands.node;
-  const sessionArgs = commands.macAppExecutable ? [] : [commands.sessiondScript];
   return {
-    "com.edward40.pi-daemon.sessiond.plist": renderPlist("com.edward40.pi-daemon.sessiond", sessionProgram, sessionArgs, join(paths.logDir, "sessiond.log")),
+    "com.edward40.pi-daemon.sessiond.plist": renderPlist("com.edward40.pi-daemon.sessiond", commands.node, [commands.sessiondScript], join(paths.logDir, "sessiond.log")),
     "com.edward40.pi-daemon.web.plist": renderPlist("com.edward40.pi-daemon.web", commands.node, [commands.webScript], join(paths.logDir, "web.log")),
     "com.edward40.pi-daemon.cloudflared.plist": renderPlist("com.edward40.pi-daemon.cloudflared", commands.cloudflared, ["tunnel", "run", "--token-file", paths.tunnelTokenFile], join(paths.logDir, "cloudflared.log")),
   };
@@ -65,7 +59,6 @@ export async function installUserServices(config: PiDaemonConfig, commands: Serv
     return;
   }
   if (process.platform === "darwin") {
-    if (commands.macAppExecutable) await access(commands.macAppExecutable, constants.X_OK);
     const directory = join(homedir(), "Library", "LaunchAgents");
     await mkdir(directory, { recursive: true, mode: 0o700 });
     const domain = `gui/${process.getuid?.() ?? 0}`;

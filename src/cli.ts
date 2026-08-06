@@ -11,7 +11,7 @@ import { defaultConfig, loadConfig, saveConfig, type PiDaemonConfig } from "./co
 import { getAppPaths } from "./paths.js";
 import { currentServiceCommands, installUserServices, restartService, stopAndRemoveUserServices } from "./services.js";
 import { TerminalPrompter } from "./terminal.js";
-import { CLOUDFLARED_VERSION, COMPUTER_USE_VERSION, PI_VERSION, VERSION } from "./version.js";
+import { CLOUDFLARED_VERSION, PI_VERSION, VERSION } from "./version.js";
 
 const execFileAsync = promisify(execFile);
 const INSTALL_URL = "https://github.com/SASUKE40/pi-daemon/releases/latest/download/install.sh";
@@ -41,11 +41,10 @@ async function setup(): Promise<void> {
   const prompt = new TerminalPrompter();
   try {
     prompt.print(`Pi Daemon ${VERSION} setup`);
-    prompt.print("This grants the authenticated mobile user access to Pi's bash, edit, and visible-desktop controls.");
+    prompt.print("This grants the authenticated mobile user access to Pi's coding tools.");
     if (!await prompt.confirm("Any previously exposed Cloudflare tunnel token has been rotated", false)) throw new Error("Rotate the exposed tunnel token before deployment, then run setup again");
     const pi = process.env.PI_DAEMON_PI || await findExecutable("pi");
     if (!pi) throw new Error("Pi CLI is missing. Re-run the one-line installer.");
-    await ensureExtension(pi, prompt);
 
     if (await prompt.confirm("Open Pi now for local /login provider setup?", true)) {
       prompt.print("In Pi, run /login, finish provider authentication, then exit Pi.");
@@ -88,12 +87,6 @@ async function setup(): Promise<void> {
     const connectorCount = await runningCloudflaredCount();
     if (connectorCount > 0) prompt.print(`Detected ${connectorCount} existing cloudflared process(es); they will not be modified.`);
     await installUserServices(config, currentServiceCommands(cloudflared));
-    if (process.platform === "darwin") {
-      prompt.print("Pi Daemon.app is now requesting Accessibility and Screen Recording access.");
-      await prompt.question("Grant both permissions in System Settings, then press Return");
-      await restartService("sessiond");
-      prompt.print("Restarted the signed host so macOS applies the grants.");
-    }
     prompt.print(`Created or reused: ${provisioned.created.length ? provisioned.created.join(", ") : "all existing managed resources"}`);
     prompt.print(`Mobile URL: https://${publicHostname}`);
     qrcode.generate(`https://${publicHostname}`, { small: true }, (code) => prompt.print(code));
@@ -101,14 +94,6 @@ async function setup(): Promise<void> {
   } finally {
     prompt.close();
   }
-}
-
-async function ensureExtension(pi: string, prompt: TerminalPrompter): Promise<void> {
-  const listed = await execFileAsync(pi, ["list"]).catch(() => ({ stdout: "", stderr: "" }));
-  if (String(listed.stdout).includes("@edward40/pi-computer-use")) return;
-  prompt.print(`Installing @edward40/pi-computer-use ${COMPUTER_USE_VERSION}…`);
-  const result = prompt.runInteractive(pi, ["install", `npm:@edward40/pi-computer-use@${COMPUTER_USE_VERSION}`]);
-  if (result.status !== 0) throw new Error("Computer Use extension installation failed");
 }
 
 async function status(): Promise<void> {
@@ -133,7 +118,6 @@ async function doctor(): Promise<void> {
   const nodeMajorMinor = process.versions.node.split(".").slice(0, 2).map(Number);
   checks.push({ name: "Node.js", ok: (nodeMajorMinor[0] || 0) > 22 || nodeMajorMinor[0] === 22 && (nodeMajorMinor[1] || 0) >= 19, detail: process.version });
   checks.push({ name: "Platform", ok: ["darwin", "linux"].includes(process.platform) && ["arm64", "x64"].includes(process.arch), detail: `${process.platform}/${process.arch}` });
-  checks.push({ name: "Graphical session", ok: process.platform === "darwin" || Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY), detail: process.platform === "darwin" ? "macOS user session" : process.env.WAYLAND_DISPLAY ? "Wayland" : process.env.DISPLAY ? "X11" : "missing DISPLAY/WAYLAND_DISPLAY" });
   const pi = await findExecutable("pi");
   const piVersion = pi ? await execFileAsync(pi, ["--version"]).then(({ stdout }) => stdout.trim()).catch(() => "unknown") : "missing";
   checks.push({ name: "Pi", ok: Boolean(pi) && piVersion.includes(PI_VERSION), detail: pi ? `${pi} (${piVersion})` : `required ${PI_VERSION}` });
@@ -142,10 +126,6 @@ async function doctor(): Promise<void> {
   if (process.platform === "linux") {
     const glibc = getGlibcVersion();
     checks.push({ name: "glibc", ok: Boolean(glibc), detail: glibc || "not detected" });
-  }
-  if (process.platform === "darwin") {
-    const appPath = join(homedir(), "Applications", "Pi Daemon.app");
-    checks.push({ name: "Signed host app", ok: await exists(appPath), detail: appPath });
   }
   try {
     const config = await loadConfig();
@@ -203,7 +183,6 @@ async function uninstall(deleteCloudflare: boolean): Promise<void> {
     if (piLauncherContent.includes(paths.dataDir)) await rm(piLauncher, { force: true });
     await rm(paths.configDir, { recursive: true, force: true });
     await rm(paths.dataDir, { recursive: true, force: true });
-    if (process.platform === "darwin") await rm(join(homedir(), "Applications", "Pi Daemon.app"), { recursive: true, force: true });
     prompt.print("Pi Daemon removed. ~/.pi/agent authentication and sessions were preserved.");
   } finally {
     prompt.close();

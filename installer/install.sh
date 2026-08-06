@@ -1,10 +1,11 @@
 #!/bin/sh
 set -eu
 
-VERSION="${PI_DAEMON_VERSION:-0.1.1}"
+VERSION="${PI_DAEMON_VERSION:-0.1.2}"
 NODE_VERSION="22.19.0"
 PI_VERSION="0.83.0"
 CLOUDFLARED_VERSION="2026.7.3"
+DAEMON_ASSET="edward40-pi-daemon-${VERSION}.tgz"
 RELEASE_BASE="https://github.com/SASUKE40/pi-daemon/releases/download/v${VERSION}"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/pi-daemon"
 NODE_LINK="$DATA_DIR/node"
@@ -29,16 +30,15 @@ command -v tar >/dev/null 2>&1 || fail "tar is required"
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 case "$OS/$ARCH" in
-  Darwin/arm64) PLATFORM="darwin-arm64"; NODE_ASSET="node-v${NODE_VERSION}-darwin-arm64.tar.gz"; CF_ASSET="cloudflared-darwin-arm64.tgz"; APP_ASSET="Pi-Daemon-${VERSION}-arm64-mac.zip" ;;
-  Darwin/x86_64) PLATFORM="darwin-x64"; NODE_ASSET="node-v${NODE_VERSION}-darwin-x64.tar.gz"; CF_ASSET="cloudflared-darwin-amd64.tgz"; APP_ASSET="Pi-Daemon-${VERSION}-x64-mac.zip" ;;
-  Linux/aarch64|Linux/arm64) PLATFORM="linux-arm64"; NODE_ASSET="node-v${NODE_VERSION}-linux-arm64.tar.gz"; CF_ASSET="cloudflared-linux-arm64"; APP_ASSET="" ;;
-  Linux/x86_64|Linux/amd64) PLATFORM="linux-x64"; NODE_ASSET="node-v${NODE_VERSION}-linux-x64.tar.gz"; CF_ASSET="cloudflared-linux-amd64"; APP_ASSET="" ;;
+  Darwin/arm64) PLATFORM="darwin-arm64"; NODE_ASSET="node-v${NODE_VERSION}-darwin-arm64.tar.gz"; CF_ASSET="cloudflared-darwin-arm64.tgz" ;;
+  Darwin/x86_64) PLATFORM="darwin-x64"; NODE_ASSET="node-v${NODE_VERSION}-darwin-x64.tar.gz"; CF_ASSET="cloudflared-darwin-amd64.tgz" ;;
+  Linux/aarch64|Linux/arm64) PLATFORM="linux-arm64"; NODE_ASSET="node-v${NODE_VERSION}-linux-arm64.tar.gz"; CF_ASSET="cloudflared-linux-arm64" ;;
+  Linux/x86_64|Linux/amd64) PLATFORM="linux-x64"; NODE_ASSET="node-v${NODE_VERSION}-linux-x64.tar.gz"; CF_ASSET="cloudflared-linux-amd64" ;;
   *) fail "unsupported platform $OS/$ARCH" ;;
 esac
 
 if [ "$OS" = "Linux" ]; then
   getconf GNU_LIBC_VERSION >/dev/null 2>&1 || fail "Linux support requires glibc"
-  [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] || fail "run setup from an active X11 or Wayland desktop session"
 fi
 
 mkdir -p "$PREFIX" "$BIN_DIR" "$TOOLS_DIR"
@@ -91,8 +91,10 @@ if [ -n "$existing_pi" ]; then
 fi
 
 printf 'Installing Pi Daemon %s and Pi %s…\n' "$VERSION" "$PI_VERSION"
+curl -fsSL "$RELEASE_BASE/$DAEMON_ASSET" -o "$TMP_DIR/$DAEMON_ASSET"
+verify_asset "$DAEMON_ASSET"
 "$MANAGED_NPM" install --global --prefix "$PREFIX" --ignore-scripts \
-  "@edward40/pi-daemon@$VERSION" \
+  "$TMP_DIR/$DAEMON_ASSET" \
   "@earendil-works/pi-coding-agent@$PI_VERSION"
 
 if [ -e "$BIN_DIR/pi-daemon" ] || [ -L "$BIN_DIR/pi-daemon" ]; then
@@ -137,19 +139,6 @@ else
   fi
   chmod 755 "$TOOLS_DIR/cloudflared"
   CF_BIN="$TOOLS_DIR/cloudflared"
-fi
-
-if [ "$OS" = "Darwin" ]; then
-  printf 'Installing signed Pi Daemon.app…\n'
-  curl -fsSL "$RELEASE_BASE/$APP_ASSET" -o "$TMP_DIR/$APP_ASSET"
-  verify_asset "$APP_ASSET"
-  ditto -x -k "$TMP_DIR/$APP_ASSET" "$TMP_DIR/app"
-  [ -d "$TMP_DIR/app/Pi Daemon.app" ] || fail "Pi Daemon.app is missing from the release archive"
-  mkdir -p "$HOME/Applications"
-  if [ -d "$HOME/Applications/Pi Daemon.app" ]; then
-    mv "$HOME/Applications/Pi Daemon.app" "$TMP_DIR/Pi Daemon.previous.app"
-  fi
-  mv "$TMP_DIR/app/Pi Daemon.app" "$HOME/Applications/Pi Daemon.app"
 fi
 
 printf '\nStarting interactive setup…\n'

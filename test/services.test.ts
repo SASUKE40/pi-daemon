@@ -20,7 +20,6 @@ const commands: ServiceCommands = {
   sessiondScript: "/app/sessiond.js",
   webScript: "/app/web.js",
   cloudflared: "/app/cloudflared",
-  macAppExecutable: "/Users/test/Applications/Pi Daemon.app/Contents/MacOS/Pi Daemon",
 };
 
 describe("service renderers", () => {
@@ -30,9 +29,10 @@ describe("service renderers", () => {
     expect(units["pi-daemon-cloudflared.service"]).not.toMatch(/eyJ/);
   });
 
-  it("uses the stable signed app as the macOS host", () => {
+  it("runs the session daemon directly with Node on macOS", () => {
     const plists = renderLaunchAgents(commands);
-    expect(plists["com.edward40.pi-daemon.sessiond.plist"]).toContain("Pi Daemon.app/Contents/MacOS/Pi Daemon");
+    expect(plists["com.edward40.pi-daemon.sessiond.plist"]).toContain("<string>/usr/bin/node</string>");
+    expect(plists["com.edward40.pi-daemon.sessiond.plist"]).toContain("<string>/app/sessiond.js</string>");
     expect(plists["com.edward40.pi-daemon.cloudflared.plist"]).toContain("--token-file");
   });
 });

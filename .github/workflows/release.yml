@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   validate:
@@ -16,7 +15,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
-          registry-url: https://registry.npmjs.org
           cache: npm
       - run: npm ci
       - run: npm run check
@@ -25,76 +23,22 @@ jobs:
           package_version="$(node -p 'require("./package.json").version')"
           test "v${package_version}" = "${GITHUB_REF_NAME}"
 
-  mac-app:
-    needs: validate
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - runner: macos-15
-            arch: arm64
-          - runner: macos-15-intel
-            arch: x64
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm run electron:install
-      - run: npm run build
-      - run: npm prune --omit=dev
-      - run: electron/node_modules/.bin/electron-builder --config electron/electron-builder.yml --mac zip --${{ matrix.arch }}
-        env:
-          CSC_LINK: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          CSC_KEY_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mac-app-${{ matrix.arch }}
-          path: release/*.zip
-
-  publish-npm:
-    needs: [validate, mac-app]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-          cache: npm
-      - run: npm ci
-      - run: npm run build
-      - name: Publish npm package if this version is new
-        run: |
-          package="$(node -p 'require("./package.json").name')"
-          version="$(node -p 'require("./package.json").version')"
-          if npm view "$package@$version" version >/dev/null 2>&1; then
-            echo "$package@$version is already published; continuing the release."
-          else
-            npm publish --provenance --access public
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
   github-release:
-    needs: [publish-npm, mac-app]
+    needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          pattern: mac-app-*
-          path: artifacts
-          merge-multiple: true
-      - name: Verify both macOS architectures
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Pack web daemon
         run: |
-          test "$(find artifacts -maxdepth 1 -name 'Pi-Daemon-*-mac.zip' | wc -l | tr -d ' ')" = 2
+          mkdir -p artifacts
+          npm pack --pack-destination artifacts
+          test "$(find artifacts -maxdepth 1 -name 'edward40-pi-daemon-*.tgz' | wc -l | tr -d ' ')" = 1
       - name: Download pinned cloudflared assets
         run: |
           for asset in cloudflared-darwin-arm64.tgz cloudflared-darwin-amd64.tgz cloudflared-linux-arm64 cloudflared-linux-amd64; do
@@ -113,7 +57,7 @@ jobs:
         run: |
           cp installer/install.sh artifacts/install.sh
           cp compatibility.json artifacts/compatibility.json
-          (cd artifacts && sha256sum Pi-Daemon-* cloudflared-* node-v22.19.0-* compatibility.json install.sh > SHA256SUMS)
+          (cd artifacts && sha256sum edward40-pi-daemon-* cloudflared-* node-v22.19.0-* compatibility.json install.sh > SHA256SUMS)
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*

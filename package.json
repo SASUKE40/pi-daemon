@@ -1,6 +1,6 @@
 {
   "name": "@edward40/pi-daemon",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Long-running Pi coding agent with a mobile web UI secured by Cloudflare Access",
   "author": "Edward Evans <sasuke688848@gmail.com>",
   "type": "module",
@@ -27,7 +27,6 @@
     "dist/**/*.d.ts",
     "public",
     "installer",
-    "services",
     "compatibility.json",
     "README.md",
     "LICENSE"
@@ -36,7 +35,7 @@
     "clean": "rm -rf dist public coverage release",
     "build:server": "tsc -p tsconfig.build.json",
     "build:web": "vite build",
-    "build": "npm run build:server && npm run build:web",
+    "build": "npm run clean && npm run build:server && npm run build:web",
     "dev:sessiond": "tsx src/sessiond.ts",
     "dev:web": "vite --host 127.0.0.1",
     "start:web": "node dist/web.js",
@@ -44,19 +43,14 @@
     "test": "vitest run --config vitest.config.ts",
     "test:watch": "vitest --config vitest.config.ts",
     "check": "npm run typecheck && npm run build && npm test",
-    "pack:check": "npm pack --dry-run",
-    "electron:install": "npm --prefix electron ci",
-    "electron:dir": "npm run build && electron/node_modules/.bin/electron-builder --config electron/electron-builder.yml --dir --mac",
-    "electron:dist": "npm run build && npm prune --omit=dev && electron/node_modules/.bin/electron-builder --config electron/electron-builder.yml --mac zip"
+    "pack:check": "npm pack --dry-run"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.83.0",
     "@earendil-works/pi-coding-agent": "0.83.0",
-    "@edward40/pi-computer-use": "0.1.1",
     "@fastify/multipart": "10.1.0",
     "@fastify/static": "10.1.2",
     "@fastify/websocket": "11.3.0",
-    "@trycua/cua-driver": "0.18.0",
     "fastify": "5.11.2",
     "jose": "6.1.0",
     "lit": "3.3.1",
@@ -84,6 +78,5 @@
   },
   "publishConfig": {
     "access": "public"
-  },
-  "main": "dist/electron-main.js"
+  }
 }

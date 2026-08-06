@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { chmod, mkdir, realpath, stat, unlink } from "node:fs/promises";
 import { createServer, type Server, type Socket } from "node:net";
-import { createRequire } from "node:module";
 import {
   createAgentSession,
   DefaultResourceLoader,
@@ -223,12 +222,10 @@ export class SessionDaemon {
     if (existing) return existing;
     const config = await loadConfig();
     const settingsManager = SettingsManager.create(manager.getCwd(), config.agentDir);
-    const extensionPath = createRequire(import.meta.url).resolve("@edward40/pi-computer-use");
     const resourceLoader = new DefaultResourceLoader({
       cwd: manager.getCwd(),
       agentDir: config.agentDir,
       settingsManager,
-      additionalExtensionPaths: [extensionPath],
       noExtensions: true,
     });
     await resourceLoader.reload();
