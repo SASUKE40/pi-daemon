@@ -10,7 +10,7 @@
       "linux-x64": "node-v22.19.0-linux-x64.tar.gz"
     }
   },
-  "pi": "0.83.0",
+  "pi": "0.84.1",
   "cloudflared": {
     "version": "2026.7.3",
     "minimumTokenFileVersion": "2025.4.0",

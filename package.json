@@ -1,6 +1,6 @@
 {
   "name": "@edward40/pi-daemon",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Long-running Pi coding agent with a mobile web UI secured by Cloudflare Access",
   "author": "Edward Evans <sasuke688848@gmail.com>",
   "type": "module",
@@ -47,8 +47,8 @@
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
-    "@earendil-works/pi-ai": "0.83.0",
-    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-ai": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.1",
     "@fastify/multipart": "10.1.0",
     "@fastify/static": "10.1.2",
     "@fastify/websocket": "11.3.0",
