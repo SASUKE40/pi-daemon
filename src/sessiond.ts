@@ -140,7 +140,7 @@ export class SessionDaemon {
         return;
       }
       case "session.create": {
-        const cwd = await validateCwd(command.cwd);
+        const cwd = await ensureWorkingDirectory(command.cwd);
         const manager = SessionManager.create(cwd);
         const runtime = await this.loadRuntime(manager);
         if (command.name?.trim()) runtime.session.sessionManager.appendSessionInfo(command.name.trim());
@@ -345,8 +345,15 @@ function toImages(attachments?: ImageAttachment[]): ImageContent[] | undefined {
   });
 }
 
-async function validateCwd(input: string): Promise<string> {
-  const cwd = await realpath(input);
+export async function ensureWorkingDirectory(input: string): Promise<string> {
+  let cwd: string;
+  try {
+    cwd = await realpath(input);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    await mkdir(input, { recursive: true });
+    cwd = await realpath(input);
+  }
   if (!(await stat(cwd)).isDirectory()) throw new Error("Working directory is not a directory");
   return cwd;
 }

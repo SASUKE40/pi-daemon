@@ -126,19 +126,22 @@ describe("PiDaemonApp", () => {
       socket?.emit({ type: "session.event", protocolVersion: 1, sessionId: "session-1", seq: 2, event: { type: "message_update", message: { role: "assistant", content: [{ type: "text", text: "**Working now" }] } } });
     });
     await waitFor(() => expect(document.querySelector('.message.live [data-streamdown="strong"]')?.textContent?.replace(/\s+/gu, " ").trim()).toBe("Working now"));
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
     await user.type(textarea, "Continue afterward");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
+    fireEvent.keyDown(textarea, { key: "Enter" });
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.followUp", text: "Continue afterward" }));
 
     await user.click(screen.getByRole("combobox", { name: "Message delivery" }));
     await user.click(await screen.findByRole("option", { name: "Steer now" }));
     await user.type(textarea, "Change direction");
-    await user.click(screen.getByRole("button", { name: "Send message" }));
+    fireEvent.keyDown(textarea, { key: "Enter" });
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.steer", text: "Change direction" }));
     await user.click(screen.getByRole("button", { name: "Stop" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.abort", sessionId: "session-1" }));
 
     await act(async () => socket?.emit({ type: "session.status", protocolVersion: 1, sessionId: "session-1", seq: 3, status: "idle" }));
+    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
 
     const uploadInput = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(uploadInput).not.toBeNull();
@@ -234,6 +237,14 @@ describe("PiDaemonApp", () => {
 });
 
 describe("NotificationSettings", () => {
+  it("does not offer a broken enable action while an old web service is still running", async () => {
+    const requestPermission = installPushEnvironment(null, "default");
+    render(<Toast.Provider><NotificationSettings publicKey={undefined} showError={vi.fn()} /></Toast.Provider>);
+    expect(await screen.findByText("Restart Pi Daemon")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Enable notifications" })).toBeNull();
+    expect(requestPermission).not.toHaveBeenCalled();
+  });
+
   it("explains the iOS Home Screen requirement before requesting permission", async () => {
     const requestPermission = installPushEnvironment(null, "default");
     vi.spyOn(window.navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)");

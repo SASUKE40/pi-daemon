@@ -55,7 +55,9 @@ export async function installUserServices(config: PiDaemonConfig, commands: Serv
     await writeDesktopEnvironment();
     for (const [name, content] of Object.entries(renderSystemdServices(commands))) await writeFile(join(directory, name), content, { mode: 0o600 });
     await execFileAsync("systemctl", ["--user", "daemon-reload"]);
-    await execFileAsync("systemctl", ["--user", "enable", "--now", "pi-daemon-sessiond.service", "pi-daemon-web.service", "pi-daemon-cloudflared.service"]);
+    const units = ["pi-daemon-sessiond.service", "pi-daemon-web.service", "pi-daemon-cloudflared.service"];
+    await execFileAsync("systemctl", ["--user", "enable", ...units]);
+    await execFileAsync("systemctl", ["--user", "restart", ...units]);
     return;
   }
   if (process.platform === "darwin") {

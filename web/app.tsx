@@ -21,7 +21,7 @@ interface Bootstrap {
   defaultCwd: string;
   hostname?: string;
   local: boolean;
-  pushPublicKey: string;
+  pushPublicKey?: string;
 }
 
 interface UploadedAttachment {
@@ -453,6 +453,7 @@ function Composer(props: {
   onModel(model: { provider: string; id: string }): void;
   onThinking(thinking: ThinkingLevel): void;
 }): ReactNode {
+  const runActive = props.status === "running" || props.status === "aborting";
   const modelItems = useMemo(() => (props.current?.availableModels || []).map((model) => ({
     ...model,
     value: `${model.provider}/${model.id}`,
@@ -511,8 +512,14 @@ function Composer(props: {
         <div className="composerActions">
           <label className="attachButton">＋ <span>Add images</span><input hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { void props.onUpload(event.target.files); event.target.value = ""; }} /></label>
           <span className="composerHint">Enter to send · Shift+Enter for a new line</span>
-          {props.status === "running" && <Button className="stopButton" onClick={props.onAbort}>Stop</Button>}
-          <Button className="sendButton" disabled={!props.current || !props.draft.trim()} onClick={props.onSubmit} aria-label="Send message">↑</Button>
+          <Button
+            className={`composerActionButton ${runActive ? "stop" : "send"}`}
+            disabled={runActive ? props.status === "aborting" : !props.current || !props.draft.trim()}
+            onClick={runActive ? props.onAbort : props.onSubmit}
+            aria-label={runActive ? (props.status === "aborting" ? "Stopping" : "Stop") : "Send message"}
+          >
+            {runActive ? <span aria-hidden="true">■</span> : <span aria-hidden="true">↑</span>}
+          </Button>
         </div>
       </div>
     </section>
@@ -612,9 +619,9 @@ function AppDialog(props: { open: boolean; onOpenChange(open: boolean): void; ti
   );
 }
 
-type PushUiState = "checking" | "unsupported" | "install-required" | "denied" | "disabled" | "enabled";
+type PushUiState = "checking" | "unsupported" | "unavailable" | "install-required" | "denied" | "disabled" | "enabled";
 
-export function NotificationSettings({ publicKey, showError }: { publicKey: string; showError(message: string): void }): ReactNode {
+export function NotificationSettings({ publicKey, showError }: { publicKey: string | undefined; showError(message: string): void }): ReactNode {
   const [status, setStatus] = useState<PushUiState>("checking");
   const [busy, setBusy] = useState(false);
 
@@ -624,6 +631,10 @@ export function NotificationSettings({ publicKey, showError }: { publicKey: stri
   }, []);
 
   const syncState = useCallback(async () => {
+    if (!publicKey) {
+      setStatus("unavailable");
+      return;
+    }
     if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
       setStatus("unsupported");
       return;
@@ -664,6 +675,7 @@ export function NotificationSettings({ publicKey, showError }: { publicKey: stri
   const enable = async () => {
     setBusy(true);
     try {
+      if (!publicKey) throw new Error("Notification settings are unavailable until Pi Daemon restarts");
       if (Notification.permission !== "granted") {
         const permission = await Notification.requestPermission();
         if (permission !== "granted") {
@@ -710,6 +722,7 @@ export function NotificationSettings({ publicKey, showError }: { publicKey: stri
   const copy: Record<PushUiState, { title: string; body: string }> = {
     checking: { title: "Checking this device", body: "Looking for an existing notification subscription." },
     unsupported: { title: "Not supported here", body: "This browser does not provide the Service Worker and Push APIs required for background alerts." },
+    unavailable: { title: "Restart Pi Daemon", body: "The notification service has not finished updating. Run pi-daemon restart all on the host, then reopen this app." },
     "install-required": { title: "Add Pi to your Home Screen", body: "On iPhone and iPad, open this site in your browser, choose Add to Home Screen, then enable notifications from the installed app." },
     denied: { title: "Permission is blocked", body: "Allow notifications for Pi Daemon in your browser or device settings, then return here." },
     disabled: { title: "Notifications are off", body: "Enable them to receive a lock-screen preview when a session completes or fails." },
@@ -717,7 +730,7 @@ export function NotificationSettings({ publicKey, showError }: { publicKey: stri
   };
   return (
     <div className="notificationSettings">
-      <div className={`notificationState ${status}`}><span>{status === "enabled" ? "✓" : status === "denied" || status === "unsupported" ? "!" : "◎"}</span><div><strong>{copy[status].title}</strong><p>{copy[status].body}</p></div></div>
+      <div className={`notificationState ${status}`}><span>{status === "enabled" ? "✓" : status === "denied" || status === "unsupported" || status === "unavailable" ? "!" : "◎"}</span><div><strong>{copy[status].title}</strong><p>{copy[status].body}</p></div></div>
       <p className="privacyNote"><strong>Lock-screen privacy:</strong> completion alerts include up to 160 characters of Pi’s final response; failures include the error message.</p>
       {status === "enabled" && <Button className="secondaryButton fullWidth" disabled={busy} onClick={() => void disable()}>{busy ? "Disabling…" : "Disable on this device"}</Button>}
       {status === "disabled" && <Button className="primaryButton fullWidth" disabled={busy} onClick={() => void enable()}>{busy ? "Enabling…" : "Enable notifications"}</Button>}
