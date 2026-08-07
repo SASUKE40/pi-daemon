@@ -62,8 +62,8 @@ export class AccessAuthorizer {
     });
     const email = typeof payload.email === "string" ? payload.email.toLowerCase() : undefined;
     if (!email) throw new Error("Cloudflare identity is missing an email claim");
-    // Legacy installs enforce the exact email here. GitHub installs are narrowed to an
-    // organization/team by the Access policy and proven here by the signed app token.
+    // Exact-email installs enforce the same identity at both the Access policy and origin.
+    // The GitHub branch remains only so v0.1.20 configurations can be loaded for migration.
     if (cloudflare.allowedEmail && email !== cloudflare.allowedEmail.toLowerCase()) throw new Error("Cloudflare identity is not allowed");
     return { local: false, email, claims: payload };
   }

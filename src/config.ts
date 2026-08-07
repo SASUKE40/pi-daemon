@@ -21,10 +21,10 @@ export interface CloudflareGitHubAccess {
   team?: string;
 }
 
-/** New installations use GitHub. The email shape remains readable for in-place migration. */
+/** New installations use exact-email OTP. The GitHub shape remains readable for in-place migration. */
 export type CloudflareConfig = CloudflareConfigBase & (
-  | { access: CloudflareGitHubAccess; allowedEmail?: undefined }
   | { access?: undefined; allowedEmail: string }
+  | { access: CloudflareGitHubAccess; allowedEmail?: undefined }
 );
 
 export interface TailscaleConfig {
@@ -80,10 +80,10 @@ export function validateCloudflareConfig(value: unknown): asserts value is Cloud
   for (const key of ["accountId", "zoneId", "tunnelId", "accessAppId", "audience", "teamDomain", "hostname"]) {
     if (typeof item[key] !== "string" || !(item[key] as string)) throw new Error(`Invalid Cloudflare field: ${key}`);
   }
-  const hasLegacyEmail = typeof item.allowedEmail === "string" && Boolean(item.allowedEmail);
+  const hasEmail = typeof item.allowedEmail === "string" && Boolean(item.allowedEmail);
   const access = item.access;
-  if (hasLegacyEmail === Boolean(access)) throw new Error("Cloudflare configuration must contain exactly one Access identity");
-  if (hasLegacyEmail) {
+  if (hasEmail === Boolean(access)) throw new Error("Cloudflare configuration must contain exactly one Access identity");
+  if (hasEmail) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.allowedEmail as string)) throw new Error("Invalid Cloudflare field: allowedEmail");
     return;
   }

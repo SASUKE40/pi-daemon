@@ -75,7 +75,7 @@ describe("setup memo", () => {
     await expect(loadSetupMemo()).resolves.toEqual(legacyMemo);
   });
 
-  it("saves GitHub organization access without OAuth credentials", async () => {
+  it("loads legacy GitHub organization access without OAuth credentials for migration", async () => {
     const githubMemo: SetupMemo = {
       schemaVersion: 1,
       defaultCwd: "/work/project",

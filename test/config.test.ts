@@ -28,7 +28,7 @@ describe("relay configuration", () => {
     expect(publicHostname(legacy)).toBe("pi.example.com");
   });
 
-  it("accepts GitHub organization access without an email allowlist", () => {
+  it("accepts legacy GitHub organization access so setup can migrate it", () => {
     const github = validateConfig({
       ...base,
       relay: "cloudflare",

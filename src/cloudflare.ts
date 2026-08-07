@@ -12,7 +12,7 @@ interface ApiEnvelope<T> {
 export interface CloudflareAccount { id: string; name: string }
 export interface CloudflareZone { id: string; name: string; account?: { id: string } }
 interface AccessOrganization { auth_domain: string; name?: string }
-export interface IdentityProvider { id: string; name: string; type: string }
+interface IdentityProvider { id: string; name: string; type: string }
 interface Tunnel { id: string; name: string; config_src?: string; deleted_at?: string | null }
 interface DnsRecord { id: string; name: string; type: string; content: string; proxied?: boolean }
 interface AccessPolicy { id: string; name: string; decision: string; include?: unknown[]; require?: unknown[] }
@@ -32,7 +32,7 @@ export interface ProvisionInput {
   accountId: string;
   zoneId: string;
   hostname: string;
-  access: CloudflareGitHubAccess;
+  allowedEmail: string;
   teamName: string;
   tunnelName: string;
   localPort: number;
@@ -80,11 +80,10 @@ export class CloudflareClient {
 
   async provision(input: ProvisionInput): Promise<ProvisionResult> {
     validateHostname(input.hostname);
-    validateGitHubOrganization(input.access.organization);
-    if (input.access.team) validateGitHubTeam(input.access.team);
+    validateEmail(input.allowedEmail);
     const created: string[] = [];
     const organization = await this.ensureOrganization(input.accountId, input.teamName, created);
-    const idp = await this.requireGitHubProvider(input.accountId, input.access.identityProviderId);
+    const idp = await this.ensureOtpProvider(input.accountId, created);
     const tunnel = await this.ensureTunnel(input, created);
     const dns = await this.ensureDns(input, tunnel.id, created);
     void dns;
@@ -102,25 +101,9 @@ export class CloudflareClient {
         audience: app.aud,
         teamDomain: organization.auth_domain,
         hostname: input.hostname.toLowerCase(),
-        access: {
-          type: "github",
-          identityProviderId: idp.id,
-          identityProviderName: idp.name,
-          organization: input.access.organization,
-          ...(input.access.team ? { team: input.access.team } : {}),
-        },
+        allowedEmail: input.allowedEmail.toLowerCase(),
       },
     };
-  }
-
-  async githubIdentityProviders(accountId: string): Promise<IdentityProvider[]> {
-    try {
-      const providers = await this.request<IdentityProvider[]>(`/accounts/${accountId}/access/identity_providers`);
-      return providers.filter((provider) => provider.type === "github");
-    } catch (error) {
-      if (error instanceof CloudflareApiError && error.status === 404) return [];
-      throw error;
-    }
   }
 
   async deleteManaged(config: CloudflareConfig): Promise<void> {
@@ -147,9 +130,15 @@ export class CloudflareClient {
     return organization;
   }
 
-  private async requireGitHubProvider(accountId: string, identityProviderId: string): Promise<IdentityProvider> {
-    const provider = (await this.githubIdentityProviders(accountId)).find((item) => item.id === identityProviderId);
-    if (!provider) throw new Error("The selected GitHub identity provider is no longer configured in Cloudflare Access");
+  private async ensureOtpProvider(accountId: string, created: string[]): Promise<IdentityProvider> {
+    const providers = await this.request<IdentityProvider[]>(`/accounts/${accountId}/access/identity_providers`);
+    const existing = providers.find((provider) => provider.type === "onetimepin");
+    if (existing) return existing;
+    const provider = await this.request<IdentityProvider>(`/accounts/${accountId}/access/identity_providers`, {
+      method: "POST",
+      body: JSON.stringify({ name: "One-time PIN", type: "onetimepin", config: {} }),
+    });
+    created.push("One-time PIN identity provider");
     return provider;
   }
 
@@ -190,7 +179,7 @@ export class CloudflareClient {
     const existing = apps.find((app) => app.domain.toLowerCase() === input.hostname.toLowerCase());
     if (existing) {
       if (existing.type !== "self_hosted" || ((!input.previous || input.previous.accessAppId !== existing.id) && !input.adoptExisting)) throw new Error(`Access application conflict: ${input.hostname}`);
-      await this.ensureGitHubPolicy(input, existing, idpId, created);
+      await this.ensureExactEmailPolicy(input, existing, idpId, created);
       return existing;
     }
     const app = await this.request<AccessApplication>(`/accounts/${input.accountId}/access/apps`, {
@@ -203,42 +192,46 @@ export class CloudflareClient {
         allowed_idps: [idpId],
         auto_redirect_to_identity: true,
         app_launcher_visible: false,
-        policies: [githubPolicy(input.access, idpId)],
+        policies: [exactEmailPolicy(input.allowedEmail, idpId)],
       }),
     });
     created.push(`Access application ${input.hostname}`);
     return app;
   }
 
-  private async ensureGitHubPolicy(input: ProvisionInput, app: AccessApplication, idpId: string, changed: string[]): Promise<void> {
+  private async ensureExactEmailPolicy(input: ProvisionInput, app: AccessApplication, idpId: string, changed: string[]): Promise<void> {
     const policies = await this.request<AccessPolicy[]>(`/accounts/${input.accountId}/access/apps/${app.id}/policies`);
-    const managed = policies.find((policy) => policy.name === "Pi Daemon GitHub organization" && policy.decision === "allow");
+    const exactEmail = policies.find((policy) => policy.name === "Pi Daemon exact email" && policy.decision === "allow");
+    const github = policies.find((policy) => policy.name === "Pi Daemon GitHub organization" && policy.decision === "allow");
+    const managed = exactEmail || github;
     const otherAllow = policies.some((policy) => policy.decision === "allow" && policy.id !== managed?.id);
-    if (managed && matchesGitHubPolicy(managed, input.access, idpId) && !otherAllow) {
-      if (!matchesGitHubApp(app, idpId)) {
-        if (!input.previous || input.previous.accessAppId !== app.id) throw new Error(`Existing Access app for ${input.hostname} is not restricted to the selected GitHub login`);
+
+    if (exactEmail && matchesExactEmailPolicy(exactEmail, input.allowedEmail, idpId) && !otherAllow) {
+      if (!matchesOtpApp(app, idpId)) {
+        if (!input.previous || input.previous.accessAppId !== app.id) throw new Error(`Existing Access app for ${input.hostname} is not restricted to One-time PIN login`);
         await this.updateAccessApp(input.accountId, app, idpId);
-        changed.push("GitHub login for Access application");
+        changed.push("One-time PIN login for Access application");
       }
       return;
     }
 
-    const legacy = policies.find((policy) => policy.name === "Pi Daemon exact email" && policy.decision === "allow");
-    const legacyEmail = input.previous?.allowedEmail;
-    const legacyMatches = Boolean(legacy && legacyEmail && legacy.include?.length === 1
-      && (legacy.include[0] as { email?: { email?: string } }).email?.email?.toLowerCase() === legacyEmail.toLowerCase()
-      && legacy.require?.some((rule) => Boolean((rule as { login_method?: { id?: string } }).login_method?.id)));
-    const otherLegacyAllow = policies.some((policy) => policy.decision === "allow" && policy.id !== legacy?.id);
-    if (!legacy || !legacyMatches || otherLegacyAllow || !input.previous || input.previous.accessAppId !== app.id) {
-      throw new Error(`Existing Access app for ${input.hostname} does not have the expected exclusive GitHub organization policy`);
+    const previous = input.previous;
+    const matchesPreviousEmail = Boolean(exactEmail && previous?.allowedEmail
+      && matchesExactEmailIdentity(exactEmail, previous.allowedEmail));
+    const matchesPreviousGitHub = Boolean(github && previous?.access
+      && matchesGitHubPolicy(github, previous.access));
+    if (!managed || otherAllow || !previous || previous.accessAppId !== app.id || (!matchesPreviousEmail && !matchesPreviousGitHub)) {
+      throw new Error(`Existing Access app for ${input.hostname} does not have the expected exclusive exact-email OTP policy`);
     }
 
-    await this.request(`/accounts/${input.accountId}/access/apps/${app.id}/policies/${legacy.id}`, {
+    await this.request(`/accounts/${input.accountId}/access/apps/${app.id}/policies/${managed.id}`, {
       method: "PUT",
-      body: JSON.stringify(githubPolicy(input.access, idpId)),
+      body: JSON.stringify(exactEmailPolicy(input.allowedEmail, idpId)),
     });
     await this.updateAccessApp(input.accountId, app, idpId);
-    changed.push("Access policy migrated from email OTP to GitHub");
+    changed.push(matchesPreviousGitHub
+      ? "Access policy migrated from GitHub to email OTP"
+      : "Exact-email OTP Access policy");
   }
 
   private async updateAccessApp(accountId: string, app: AccessApplication, idpId: string): Promise<void> {
@@ -316,39 +309,43 @@ export function validateHostname(hostname: string): void {
   if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(hostname)) throw new Error("Invalid public hostname");
 }
 
-export function validateGitHubOrganization(organization: string): void {
-  if (!/^[a-z\d](?:[a-z\d-]{0,37}[a-z\d])?$/i.test(organization)) throw new Error("Invalid GitHub organization");
+export function validateEmail(email: string): void {
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Invalid allowed email");
 }
 
-export function validateGitHubTeam(team: string): void {
-  if (!/^[a-z\d](?:[a-z\d-]{0,98}[a-z\d])?$/i.test(team)) throw new Error("Invalid GitHub team slug");
-}
-
-function githubPolicy(access: CloudflareGitHubAccess, idpId: string): Record<string, unknown> {
+function exactEmailPolicy(email: string, idpId: string): Record<string, unknown> {
   return {
-    name: "Pi Daemon GitHub organization",
+    name: "Pi Daemon exact email",
     decision: "allow",
     precedence: 1,
-    include: [{ "github-organization": {
-      name: access.organization,
-      identity_provider_id: idpId,
-      ...(access.team ? { team: access.team } : {}),
-    } }],
+    include: [{ email: { email: email.toLowerCase() } }],
     require: [{ login_method: { id: idpId } }],
   };
 }
 
-function matchesGitHubPolicy(policy: AccessPolicy, access: CloudflareGitHubAccess, idpId: string): boolean {
+function matchesExactEmailIdentity(policy: AccessPolicy, email: string): boolean {
+  return policy.include?.length === 1
+    && (policy.include[0] as { email?: { email?: string } }).email?.email?.toLowerCase() === email.toLowerCase()
+    && Boolean(policy.require?.some((rule) => Boolean((rule as { login_method?: { id?: string } }).login_method?.id)));
+}
+
+function matchesExactEmailPolicy(policy: AccessPolicy, email: string, idpId: string): boolean {
+  return policy.include?.length === 1
+    && (policy.include[0] as { email?: { email?: string } }).email?.email?.toLowerCase() === email.toLowerCase()
+    && Boolean(policy.require?.some((rule) => (rule as { login_method?: { id?: string } }).login_method?.id === idpId));
+}
+
+function matchesGitHubPolicy(policy: AccessPolicy, access: CloudflareGitHubAccess): boolean {
   const organization = policy.include?.length === 1
     ? (policy.include[0] as { "github-organization"?: { name?: string; team?: string; identity_provider_id?: string } })["github-organization"]
     : undefined;
   return organization?.name?.toLowerCase() === access.organization.toLowerCase()
     && (organization.team || undefined)?.toLowerCase() === (access.team || undefined)?.toLowerCase()
-    && organization.identity_provider_id === idpId
-    && Boolean(policy.require?.some((rule) => (rule as { login_method?: { id?: string } }).login_method?.id === idpId));
+    && organization.identity_provider_id === access.identityProviderId
+    && Boolean(policy.require?.some((rule) => (rule as { login_method?: { id?: string } }).login_method?.id === access.identityProviderId));
 }
 
-function matchesGitHubApp(app: AccessApplication, idpId: string): boolean {
+function matchesOtpApp(app: AccessApplication, idpId: string): boolean {
   return app.allowed_idps?.length === 1 && app.allowed_idps[0] === idpId && app.auto_redirect_to_identity === true;
 }
 

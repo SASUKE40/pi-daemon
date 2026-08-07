@@ -9,17 +9,15 @@ import qrcode from "qrcode-terminal";
 import {
   CloudflareClient,
   TunnelNameConflictError,
-  validateGitHubOrganization,
-  validateGitHubTeam,
+  validateEmail,
   validateHostname,
   type CloudflareAccount,
-  type IdentityProvider,
   type CloudflareZone,
   type ProvisionInput,
   type ProvisionResult,
 } from "./cloudflare.js";
 import { authorizeCloudflare, cloudflareOAuthConfig } from "./cloudflare-oauth.js";
-import { activeRelay, defaultConfig, loadConfig, publicHostname as configuredHostname, saveConfig, type CloudflareGitHubAccess, type PiDaemonConfig, type RelayKind, type TailscaleConfig } from "./config.js";
+import { activeRelay, defaultConfig, loadConfig, publicHostname as configuredHostname, saveConfig, type PiDaemonConfig, type RelayKind, type TailscaleConfig } from "./config.js";
 import { getAppPaths } from "./paths.js";
 import { loadSetupMemo, removeRuntimeConfigPreservingSetupMemo, saveSetupMemo, type SetupMemo } from "./setup-memo.js";
 import { currentServiceCommands, installUserServices, restartService, stopAndRemoveUserServices } from "./services.js";
@@ -86,25 +84,8 @@ async function setup(fromInstaller = false): Promise<void> {
       const { cloudflare, account, zone } = connection;
       releaseCloudflare = connection.release;
       const publicHostname = await questionValidated(prompt, "Public hostname", current.cloudflare?.hostname || memo?.hostname || `pi.${zone.name}`, validateHostname);
-      const githubProviders = await cloudflare.githubIdentityProviders(account.id);
-      if (!githubProviders.length) {
-        throw new Error("No GitHub login is configured in Cloudflare Zero Trust. Add GitHub under Integrations > Identity providers, finish its authorization, then run setup again: https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/github/");
-      }
-      const rememberedGitHub = [current.cloudflare?.access, memo?.cloudflare?.access]
-        .find((access): access is CloudflareGitHubAccess => access?.type === "github");
-      const identityProvider = await selectGitHubIdentityProvider(githubProviders, prompt, rememberedGitHub?.identityProviderId);
-      const organization = await questionValidated(prompt, "Only GitHub organization allowed", rememberedGitHub?.organization, validateGitHubOrganization);
-      const restrictToTeam = await prompt.confirm("Restrict access to one GitHub team?", Boolean(rememberedGitHub?.team));
-      const team = restrictToTeam
-        ? await questionValidated(prompt, "GitHub team slug", rememberedGitHub?.team, validateGitHubTeam)
-        : undefined;
-      const access: CloudflareGitHubAccess = {
-        type: "github",
-        identityProviderId: identityProvider.id,
-        identityProviderName: identityProvider.name,
-        organization,
-        ...(team ? { team } : {}),
-      };
+      const rememberedEmail = current.cloudflare?.allowedEmail || memo?.cloudflare?.allowedEmail || memo?.allowedEmail;
+      const allowedEmail = await questionValidated(prompt, "Only email allowed by Cloudflare Access", rememberedEmail, validateEmail);
       prompt.print("Saved reinstall choices do not include the temporary Cloudflare authorization.");
       rememberSetup = await prompt.confirm("Remember these choices for a future setup or reinstall?", true);
       const teamName = `pi-${account.id.slice(0, 8)}`;
@@ -115,7 +96,7 @@ async function setup(fromInstaller = false): Promise<void> {
         accountId: account.id,
         zoneId: zone.id,
         hostname: publicHostname,
-        access,
+        allowedEmail,
         teamName,
         tunnelName,
         localPort: current.port,
@@ -127,7 +108,7 @@ async function setup(fromInstaller = false): Promise<void> {
       } catch (error) {
         if (!(error instanceof TunnelNameConflictError)) throw error;
         prompt.print(`An existing remotely managed Cloudflare tunnel is named ${error.tunnelName}. This can be left behind by an interrupted setup or an uninstall that kept Cloudflare resources.`);
-        if (!await prompt.confirm("Reuse it? Pi Daemon will require matching DNS and an exclusive GitHub organization policy.", false)) throw error;
+        if (!await prompt.confirm("Reuse it? Pi Daemon will require matching DNS and an exact-email OTP Access policy.", false)) throw error;
         provisioned = await cloudflare.provision({ ...provisionInput, adoptExisting: true });
       }
       await mkdir(paths.configDir, { recursive: true, mode: 0o700 });
@@ -141,6 +122,7 @@ async function setup(fromInstaller = false): Promise<void> {
         defaultCwd,
         relay: "cloudflare",
         hostname: publicHostname,
+        allowedEmail,
         accountId: account.id,
         zoneId: zone.id,
         cloudflare: provisioned.config,
@@ -436,7 +418,7 @@ async function selectZone(zones: CloudflareZone[], prompt: TerminalPrompter, pre
 
 function printCloudflareTokenInstructions(prompt: TerminalPrompter): void {
   prompt.print("\nCloudflare login");
-  prompt.print("Use a scoped API token. cloudflared's browser login cannot configure the Access app and GitHub organization policy.");
+  prompt.print("Use a scoped API token. cloudflared's browser login cannot configure the Access app and exact-email OTP policy.");
   prompt.print("Create a Custom Token here:");
   prompt.print(CLOUDFLARE_TOKEN_URL);
   prompt.print("Permissions (Cloudflare may label Edit as Write):");
@@ -447,21 +429,6 @@ function printCloudflareTokenInstructions(prompt: TerminalPrompter): void {
   prompt.print("  Zone    · Zone · Read");
   prompt.print("  Zone    · DNS · Edit");
   prompt.print("Scope Account Resources to the account and Zone Resources to the DNS zone you want to use.");
-}
-
-async function selectGitHubIdentityProvider(providers: IdentityProvider[], prompt: TerminalPrompter, preferredId?: string): Promise<IdentityProvider> {
-  if (providers.length === 1) {
-    const provider = providers[0] as IdentityProvider;
-    prompt.print(`GitHub login: ${provider.name}`);
-    return provider;
-  }
-  prompt.print(providers.map((item, index) => `${index + 1}. ${item.name} (${item.id})`).join("\n"));
-  const preferredIndex = providers.findIndex((item) => item.id === preferredId);
-  while (true) {
-    const selected = Number(await prompt.question("GitHub login number", String(preferredIndex >= 0 ? preferredIndex + 1 : 1))) - 1;
-    if (providers[selected]) return providers[selected] as IdentityProvider;
-    prompt.print(`Enter a number from 1 to ${providers.length}.`);
-  }
 }
 
 interface CloudflareConnection {

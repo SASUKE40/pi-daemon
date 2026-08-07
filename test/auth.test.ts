@@ -113,7 +113,7 @@ describe("Access helpers", () => {
     await expect(authorizer.authorize({ host: "pi.example.com", "cf-access-jwt-assertion": await sign("me@example.com", "0s") })).rejects.toThrow();
   });
 
-  it("accepts a signed identity after the GitHub organization policy has authorized it", async () => {
+  it("keeps legacy GitHub configurations usable until setup migrates them", async () => {
     const { publicKey, privateKey } = await generateKeyPair("RS256");
     const jwk = { ...(await exportJWK(publicKey)), kid: "test", alg: "RS256" };
     const authorizer = new AccessAuthorizer(githubAccessConfig, createLocalJWKSet({ keys: [jwk] }));
