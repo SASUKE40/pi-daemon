@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-VERSION="${PI_DAEMON_VERSION:-0.1.7}"
+VERSION="${PI_DAEMON_VERSION:-0.1.8}"
 NODE_VERSION="22.19.0"
-PI_VERSION="0.83.0"
+PI_VERSION="0.84.1"
 CLOUDFLARED_VERSION="2026.7.3"
 DAEMON_ASSET="edward40-pi-daemon-${VERSION}.tgz"
 RELEASE_BASE="https://github.com/SASUKE40/pi-daemon/releases/download/v${VERSION}"
