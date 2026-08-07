@@ -28,6 +28,48 @@ describe("relay configuration", () => {
     expect(publicHostname(legacy)).toBe("pi.example.com");
   });
 
+  it("accepts GitHub organization access without an email allowlist", () => {
+    const github = validateConfig({
+      ...base,
+      relay: "cloudflare",
+      cloudflare: {
+        accountId: "a",
+        zoneId: "z",
+        tunnelId: "t",
+        accessAppId: "app",
+        audience: "aud",
+        teamDomain: "team.cloudflareaccess.com",
+        hostname: "pi.example.com",
+        access: {
+          type: "github",
+          identityProviderId: "github-id",
+          identityProviderName: "GitHub",
+          organization: "SASUKE40",
+          team: "pi-admins",
+        },
+      },
+    });
+
+    expect(github.cloudflare?.access).toMatchObject({ type: "github", organization: "SASUKE40" });
+    expect(github.cloudflare?.allowedEmail).toBeUndefined();
+  });
+
+  it("rejects ambiguous or unrestricted Cloudflare identities", () => {
+    const cloudflare = {
+      accountId: "a", zoneId: "z", tunnelId: "t", accessAppId: "app", audience: "aud",
+      teamDomain: "team.cloudflareaccess.com", hostname: "pi.example.com",
+    };
+    expect(() => validateConfig({ ...base, cloudflare })).toThrow("exactly one Access identity");
+    expect(() => validateConfig({
+      ...base,
+      cloudflare: {
+        ...cloudflare,
+        allowedEmail: "me@example.com",
+        access: { type: "github", identityProviderId: "id", identityProviderName: "GitHub", organization: "org" },
+      },
+    })).toThrow("exactly one Access identity");
+  });
+
   it("selects Tailscale when both relay configurations are retained", () => {
     const config = validateConfig({
       ...base,

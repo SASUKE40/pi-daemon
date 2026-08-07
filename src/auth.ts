@@ -61,7 +61,10 @@ export class AccessAuthorizer {
       audience: cloudflare.audience,
     });
     const email = typeof payload.email === "string" ? payload.email.toLowerCase() : undefined;
-    if (!email || email !== cloudflare.allowedEmail.toLowerCase()) throw new Error("Cloudflare identity is not allowed");
+    if (!email) throw new Error("Cloudflare identity is missing an email claim");
+    // Legacy installs enforce the exact email here. GitHub installs are narrowed to an
+    // organization/team by the Access policy and proven here by the signed app token.
+    if (cloudflare.allowedEmail && email !== cloudflare.allowedEmail.toLowerCase()) throw new Error("Cloudflare identity is not allowed");
     return { local: false, email, claims: payload };
   }
 }

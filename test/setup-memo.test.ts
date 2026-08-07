@@ -75,6 +75,34 @@ describe("setup memo", () => {
     await expect(loadSetupMemo()).resolves.toEqual(legacyMemo);
   });
 
+  it("saves GitHub organization access without OAuth credentials", async () => {
+    const githubMemo: SetupMemo = {
+      schemaVersion: 1,
+      defaultCwd: "/work/project",
+      relay: "cloudflare",
+      cloudflare: {
+        accountId: "account-id",
+        zoneId: "zone-id",
+        tunnelId: "tunnel-id",
+        accessAppId: "app-id",
+        audience: "aud-id",
+        teamDomain: "pi-team.cloudflareaccess.com",
+        hostname: "pi.example.com",
+        access: {
+          type: "github",
+          identityProviderId: "github-id",
+          identityProviderName: "GitHub",
+          organization: "SASUKE40",
+        },
+      },
+    };
+
+    await saveSetupMemo(githubMemo);
+
+    expect(await loadSetupMemo()).toEqual(githubMemo);
+    expect(await readFile(getAppPaths().setupMemoFile, "utf8")).not.toMatch(/clientSecret|client_secret|credential/i);
+  });
+
   it("saves Tailscale Serve choices without a credential", async () => {
     const tailscaleMemo: SetupMemo = {
       schemaVersion: 1,

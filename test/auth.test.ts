@@ -30,6 +30,20 @@ const tailscaleConfig: PiDaemonConfig = {
   },
 };
 
+const githubAccessConfig: PiDaemonConfig = {
+  ...accessConfig,
+  cloudflare: {
+    accountId: "a", zoneId: "z", tunnelId: "t", accessAppId: "app", audience: "aud",
+    teamDomain: "team.cloudflareaccess.com", hostname: "pi.example.com",
+    access: {
+      type: "github",
+      identityProviderId: "github-id",
+      identityProviderName: "GitHub",
+      organization: "SASUKE40",
+    },
+  },
+};
+
 describe("Access helpers", () => {
   it("allows only exact loopback hosts", () => {
     expect(isLoopbackHost("127.0.0.1:8504")).toBe(true);
@@ -97,5 +111,21 @@ describe("Access helpers", () => {
     await expect(authorizer.authorize({ host: "pi.example.com", "cf-access-jwt-assertion": valid })).resolves.toMatchObject({ local: false, email: "me@example.com" });
     await expect(authorizer.authorize({ host: "pi.example.com", "cf-access-jwt-assertion": await sign("other@example.com", "5m") })).rejects.toThrow("not allowed");
     await expect(authorizer.authorize({ host: "pi.example.com", "cf-access-jwt-assertion": await sign("me@example.com", "0s") })).rejects.toThrow();
+  });
+
+  it("accepts a signed identity after the GitHub organization policy has authorized it", async () => {
+    const { publicKey, privateKey } = await generateKeyPair("RS256");
+    const jwk = { ...(await exportJWK(publicKey)), kid: "test", alg: "RS256" };
+    const authorizer = new AccessAuthorizer(githubAccessConfig, createLocalJWKSet({ keys: [jwk] }));
+    const valid = await new SignJWT({ email: "MEMBER@example.com" })
+      .setProtectedHeader({ alg: "RS256", kid: "test" })
+      .setIssuer("https://team.cloudflareaccess.com")
+      .setAudience("aud")
+      .setIssuedAt()
+      .setExpirationTime("5m")
+      .sign(privateKey);
+
+    await expect(authorizer.authorize({ host: "pi.example.com", "cf-access-jwt-assertion": valid }))
+      .resolves.toMatchObject({ local: false, email: "member@example.com" });
   });
 });

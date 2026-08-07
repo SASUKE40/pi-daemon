@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { DEFAULT_PORT } from "./version.js";
 import { getAppPaths } from "./paths.js";
 
-export interface CloudflareConfig {
+interface CloudflareConfigBase {
   accountId: string;
   zoneId: string;
   tunnelId: string;
@@ -11,8 +11,21 @@ export interface CloudflareConfig {
   audience: string;
   teamDomain: string;
   hostname: string;
-  allowedEmail: string;
 }
+
+export interface CloudflareGitHubAccess {
+  type: "github";
+  identityProviderId: string;
+  identityProviderName: string;
+  organization: string;
+  team?: string;
+}
+
+/** New installations use GitHub. The email shape remains readable for in-place migration. */
+export type CloudflareConfig = CloudflareConfigBase & (
+  | { access: CloudflareGitHubAccess; allowedEmail?: undefined }
+  | { access?: undefined; allowedEmail: string }
+);
 
 export interface TailscaleConfig {
   hostname: string;
@@ -64,9 +77,23 @@ export function validateConfig(value: unknown): PiDaemonConfig {
 export function validateCloudflareConfig(value: unknown): asserts value is CloudflareConfig {
   if (!value || typeof value !== "object") throw new Error("Invalid Cloudflare configuration");
   const item = value as Record<string, unknown>;
-  for (const key of ["accountId", "zoneId", "tunnelId", "accessAppId", "audience", "teamDomain", "hostname", "allowedEmail"]) {
+  for (const key of ["accountId", "zoneId", "tunnelId", "accessAppId", "audience", "teamDomain", "hostname"]) {
     if (typeof item[key] !== "string" || !(item[key] as string)) throw new Error(`Invalid Cloudflare field: ${key}`);
   }
+  const hasLegacyEmail = typeof item.allowedEmail === "string" && Boolean(item.allowedEmail);
+  const access = item.access;
+  if (hasLegacyEmail === Boolean(access)) throw new Error("Cloudflare configuration must contain exactly one Access identity");
+  if (hasLegacyEmail) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(item.allowedEmail as string)) throw new Error("Invalid Cloudflare field: allowedEmail");
+    return;
+  }
+  if (!access || typeof access !== "object") throw new Error("Invalid Cloudflare field: access");
+  const identity = access as Record<string, unknown>;
+  if (identity.type !== "github") throw new Error("Invalid Cloudflare Access identity type");
+  for (const key of ["identityProviderId", "identityProviderName", "organization"]) {
+    if (typeof identity[key] !== "string" || !identity[key]) throw new Error(`Invalid Cloudflare Access field: ${key}`);
+  }
+  if (identity.team !== undefined && (typeof identity.team !== "string" || !identity.team)) throw new Error("Invalid Cloudflare Access field: team");
 }
 
 export function validateTailscaleConfig(value: unknown): asserts value is TailscaleConfig {

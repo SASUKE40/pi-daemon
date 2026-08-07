@@ -291,9 +291,11 @@ export class SessionDaemon {
       const config = await loadConfig();
       const subject = activeRelay(config) === "cloudflare" && config.cloudflare?.allowedEmail
         ? `mailto:${config.cloudflare.allowedEmail}`
-        : activeRelay(config) === "tailscale" && config.tailscale?.hostname
-          ? `https://${config.tailscale.hostname}`
-          : "https://localhost";
+        : activeRelay(config) === "cloudflare" && config.cloudflare?.hostname
+          ? `https://${config.cloudflare.hostname}`
+          : activeRelay(config) === "tailscale" && config.tailscale?.hostname
+            ? `https://${config.tailscale.hostname}`
+            : "https://localhost";
       await this.push.send(notification, subject);
     } catch (error) {
       log.warn("unable to send session notification", { message: error instanceof Error ? error.message : String(error) });

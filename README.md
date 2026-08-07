@@ -1,12 +1,12 @@
 # Pi Daemon
 
-Pi Daemon runs the [Pi coding agent](https://github.com/earendil-works/pi) in a persistent server session, serves a focused mobile PWA on loopback, and makes it available through either private Tailscale Serve or a Cloudflare Tunnel protected by an exact-email Access policy.
+Pi Daemon runs the [Pi coding agent](https://github.com/earendil-works/pi) in a persistent server session, serves a focused mobile PWA on loopback, and makes it available through either private Tailscale Serve or a Cloudflare Tunnel protected by a GitHub organization Access policy.
 
 ![Pi Daemon web interface](.github/assets/pi-daemon-web.jpg)
 
 _Current desktop layout. On mobile, the same session list is available from a drawer._
 
-> **Security:** An authenticated mobile user can invoke Pi's coding tools, execute commands, and modify files without per-action confirmation. Limit access to the intended Tailscale login or Cloudflare email, protect that identity, and do not run the service on a machine you are unwilling to control remotely.
+> **Security:** An authenticated mobile user can invoke Pi's coding tools, execute commands, and modify files without per-action confirmation. Limit access to the intended Tailscale login or GitHub organization/team, protect that identity, and do not run the service on a machine you are unwilling to control remotely.
 
 ## One-line installation
 
@@ -19,7 +19,7 @@ Prerequisites:
 - `curl` and `tar` (the installer provides its own Node.js 24.19.0 LTS/npm runtime without root)
 - macOS 13+ on arm64/x64, or glibc Linux arm64/x64
 - For the simplest private setup: Tailscale installed and signed in on the host and mobile device
-- Or, for a public hostname: a Cloudflare account with a managed DNS zone
+- Or, for a public hostname: a Cloudflare account with a managed DNS zone, a configured GitHub identity provider, and a GitHub organization
 
 The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `24.19.0` LTS, Pi `0.84.1`, and cloudflared `2026.7.3`. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root.
 
@@ -60,31 +60,34 @@ The default uninstall removes Pi Daemon services and runtime configuration, and 
 
 ## Cloudflare Tunnel (default)
 
-Choose Cloudflare when Pi Daemon needs a public hostname without opening an inbound port. You need a Cloudflare account with an active DNS zone, permission to manage that account and zone, and access to the inbox for the one email address that will be allowed through Access.
+Choose Cloudflare when Pi Daemon needs a public hostname without opening an inbound port. You need a Cloudflare account with an active DNS zone, permission to manage that account and zone, a GitHub identity provider configured in Cloudflare Zero Trust, and a GitHub organization whose members will be allowed through Access. Optionally, restrict the policy further to one GitHub team.
+
+Before running setup, follow Cloudflare's [GitHub identity provider guide](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/github/). In GitHub, the OAuth application's homepage is `https://<team-name>.cloudflareaccess.com` and its callback is `https://<team-name>.cloudflareaccess.com/cdn-cgi/access/callback`. Add the resulting client ID and secret under **Cloudflare Zero Trust > Integrations > Identity providers > GitHub**, select **Finish setup**, and authorize the requested read-only organization/team and email access. Pi Daemon reads the configured provider through the Cloudflare API; it never receives or stores the GitHub OAuth client secret.
 
 ### Setup
 
 1. Run the installer, or rerun `pi-daemon setup`, and choose **Cloudflare Tunnel**.
 2. Open the displayed authorization link in any browser or scan its QR code from another device. Sign in to Cloudflare, review the requested permissions, and authorize Pi Daemon. This works even when setup is running on a headless board.
 3. Select the Cloudflare account and DNS zone when more than one is available.
-4. Accept the default `pi.<zone>` hostname or enter another unused hostname in that zone, then enter the one exact email address allowed to use Pi Daemon.
-5. Choose whether to remember the non-secret setup choices for a future reinstall. The wizard then provisions the Cloudflare resources and installs a dedicated user-level `cloudflared` connector.
-6. Open the displayed mobile URL, enter the allowed email address, and use the One-time PIN sent by Cloudflare.
+4. Accept the default `pi.<zone>` hostname or enter another unused hostname in that zone.
+5. Select the configured GitHub login, enter the one GitHub organization allowed to use Pi Daemon, and optionally enter a team slug.
+6. Choose whether to remember the non-secret setup choices for a future reinstall. The wizard then provisions the Cloudflare resources and installs a dedicated user-level `cloudflared` connector.
+7. Open the displayed mobile URL. Cloudflare redirects directly to GitHub sign-in; there is no Cloudflare email or one-time-PIN form.
 
 The wizard creates or validates:
 
 - A Zero Trust organization, if the account does not already have one
-- A One-time PIN identity provider, if one is not already configured
+- The selected, already configured GitHub identity provider
 - One remotely managed tunnel with ingress to `http://127.0.0.1:8504`
 - One proxied CNAME for the selected hostname
 - One self-hosted Access application with a 24-hour session
-- One Allow policy that includes only the exact email and requires the One-time PIN login method
+- One Allow policy that includes only the selected GitHub organization (and optional team) and requires the selected GitHub login method
 
-New Zero Trust organizations may use Cloudflare's own identity provider by default; Pi Daemon still creates or reuses One-time PIN and makes it the only login method for this application. The origin remains loopback-only, and `cloudflared` makes an outbound connection to Cloudflare, so no router port forwarding is required.
+Pi Daemon makes GitHub the application's only login method and enables automatic redirection, so Cloudflare's email input is not presented. The origin remains loopback-only, and `cloudflared` makes an outbound connection to Cloudflare, so no router port forwarding is required.
 
 The CLI uses Authorization Code with PKCE. The callback relay holds only the short-lived authorization code, while the PKCE verifier and polling secret stay on the Pi Daemon host. The temporary Cloudflare access token is revoked when setup finishes. Reinstall metadata stores resource IDs and user selections but no OAuth authorization. The long-lived tunnel connector token is written to a mode-0600 file and supplied to `cloudflared` with [`--token-file`](https://developers.cloudflare.com/tunnel/advanced/run-parameters/#token-file), rather than appearing on the process command line.
 
-Matching resources recorded by an earlier setup can be reused. Pi Daemon refuses to overwrite conflicting DNS records or Access applications. A same-named, remotely managed tunnel left by an older uninstall or interrupted setup can be adopted only after an explicit default-No confirmation, and its DNS and exact-email Access policy must still match.
+Matching resources recorded by an earlier setup can be reused. When rerun with a saved Pi Daemon installation, setup migrates its exclusive exact-email/OTP policy to the selected GitHub organization policy before switching the application's login method. Pi Daemon refuses to overwrite conflicting DNS records or Access applications. A same-named, remotely managed tunnel left by an older uninstall or interrupted setup can be adopted only after an explicit default-No confirmation, and its DNS and exclusive GitHub organization policy must still match.
 
 ### Verify and troubleshoot
 
@@ -95,7 +98,7 @@ pi-daemon logs tunnel
 pi-daemon restart tunnel
 ```
 
-If the Access login email does not arrive, confirm that the address exactly matches setup and allowlist `noreply@notify.cloudflare.com` in any mail-security service. Cloudflare One-time PINs expire after 10 minutes, are single-use, and a newly requested PIN invalidates the previous one. See Cloudflare's [One-time PIN login guide](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/) for current login behavior.
+If GitHub sign-in is denied, verify that the user belongs to the configured organization and optional team, then test the GitHub provider under **Cloudflare Zero Trust > Integrations > Identity providers**. If the user joined the organization after a failed login, revoke the Cloudflare OAuth application's access in GitHub and sign in again so Cloudflare receives updated membership. See Cloudflare's [GitHub identity provider guide](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/github/) for current troubleshooting steps.
 
 The normal uninstall leaves the Cloudflare tunnel, CNAME, and Access application in place. Use `pi-daemon uninstall --delete-cloudflare` to remove the exact managed resources after a fresh browser authorization and confirmation. If the connector token is ever exposed, rotate it in Cloudflare before starting the connector again.
 
@@ -123,7 +126,7 @@ Set the token's resource scopes explicitly:
 - Account Resources > Include > the account owning the domain
 - Zone Resources > Include > the intended DNS zone
 
-This scoped token is only a fallback because `cloudflared`'s own browser login cannot configure the Access application and exact-email policy. Pi Daemon does not add newly entered manual tokens to the reinstall memo. Older memos containing a saved token remain readable for migration and lose the token the next time choices are saved.
+This scoped token is only a fallback because `cloudflared`'s own browser login cannot configure the Access application and GitHub organization policy. Pi Daemon does not add newly entered manual tokens to the reinstall memo. Older memos containing a saved token or exact-email configuration remain readable for migration and lose the token the next time choices are saved.
 
 ## Tailscale Serve (recommended for private access)
 
