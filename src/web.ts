@@ -13,6 +13,7 @@ import { IpcClient } from "./ipc.js";
 import { log } from "./log.js";
 import { getAppPaths } from "./paths.js";
 import { event, parseClientCommand, type ClientCommand, type ImageAttachment, type ServerEvent } from "./protocol.js";
+import { PushService, PushSubscriptionLimitError } from "./push.js";
 import { PROTOCOL_VERSION, VERSION } from "./version.js";
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -35,11 +36,19 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
   const ipc = new IpcClient(getAppPaths().socketPath);
   const sockets = new Set<WebSocket>();
   const attachments = new Map<string, PendingAttachment>();
+  const push = new PushService();
   const publicRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
 
   await app.register(multipart, { limits: { files: 4, fileSize: MAX_ATTACHMENT_BYTES } });
   await app.register(websocket, { options: { maxPayload: 2 * 1024 * 1024 } });
-  await app.register(fastifyStatic, { root: publicRoot, prefix: "/" });
+  await app.register(fastifyStatic, {
+    root: publicRoot,
+    prefix: "/",
+    setHeaders: (response, path) => {
+      if (path.endsWith("sw.js") || path.endsWith("manifest.webmanifest")) response.header("Cache-Control", "no-cache");
+      else if (path.includes("/assets/")) response.header("Cache-Control", "public, max-age=31536000, immutable");
+    },
+  });
 
   app.addHook("onRequest", async (request, reply) => authorize(request, reply, authorizer));
   app.addHook("onSend", async (_request, reply, payload) => {
@@ -58,7 +67,29 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
     defaultCwd: config.defaultCwd,
     hostname: config.cloudflare?.hostname,
     local: isLoopbackHost(hostnameFromHeaders(request.headers)),
+    pushPublicKey: await push.getPublicKey(),
   }));
+
+  app.put("/api/push/subscription", { bodyLimit: 16 * 1024 }, async (request, reply) => {
+    try {
+      const subscription = await push.subscribe(request.body);
+      return { ok: true, endpoint: subscription.endpoint };
+    } catch (error) {
+      const status = error instanceof PushSubscriptionLimitError ? 409 : 400;
+      return reply.code(status).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.delete("/api/push/subscription", { bodyLimit: 4 * 1024 }, async (request, reply) => {
+    const endpoint = request.body && typeof request.body === "object"
+      ? (request.body as Record<string, unknown>).endpoint
+      : undefined;
+    try {
+      return { ok: true, removed: await push.unsubscribe(endpoint) };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   app.post("/api/attachments", async (request, reply) => {
     const uploaded: Array<{ id: string; name: string; mimeType: string; size: number }> = [];

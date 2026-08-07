@@ -50,18 +50,33 @@ The default uninstall removes only Pi Daemon services and daemon configuration. 
 
 ## Cloudflare API token permissions
 
+If a Cloudflare API token has been exposed, **immediately revoke the exposed token** under **Cloudflare > My Profile > API Tokens**. Do not reuse or retry an exposed token.
+
 Choose **Create Custom Token**, scope it to one account and one DNS zone, and add:
 
 - Account > Account Settings > Read
-- Account > Cloudflare Tunnel > Edit (shown as Write in some dashboard versions)
-- Account > Access: Apps and Policies > Edit
-- Account > Access: Organizations, Identity Providers, and Groups > Edit
+- Account > Cloudflare Tunnel > Edit/Write
+- Account > Access: Apps and Policies > Edit/Write
+- Account > Access: Organizations, Identity Providers, and Groups > Edit/Write
 - Zone > Zone > Read
-- Zone > DNS > Edit
+- Zone > DNS > Edit/Write
+
+Set the token's resource scopes explicitly:
+
+- Account Resources > Include > the account owning the domain
+- Zone Resources > Include > the intended DNS zone
 
 This scoped API token is required because `cloudflared`'s browser login cannot configure the Access application and exact-email policy. The setup wizard uses the token once and does not save it.
 
 The wizard creates or validates one remotely managed tunnel, one proxied CNAME, one self-hosted Access application, and an Allow policy containing the exact email plus a required One-time PIN login method. It refuses to overwrite conflicting DNS or Access resources.
+
+## Completion notifications
+
+Pi Daemon can send an opt-in Web Push notification when a session completes or fails, even when the PWA is closed. Open **Completion notifications** from the session header and enable alerts separately on each device. Disabling alerts removes only that device's subscription.
+
+On iPhone and iPad, first add Pi Daemon to the Home Screen, open the installed app, and then enable notifications from the in-app control, as required by [WebKit's Web Push support](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/). Android and desktop browsers can enable notifications directly when their Push API support is available. The Pi Daemon host needs outbound HTTPS access to the browser vendor's push service; no additional inbound port or Cloudflare resource is required.
+
+Completion notifications include up to 160 characters from the final assistant response, and failure notifications include the error message. This preview may be visible on the device lock screen. Web Push subscriptions and the private VAPID key are stored under Pi Daemon's mode-0700 data directory in mode-0600 files and are removed with the normal Pi Daemon data uninstall.
 
 ## Development
 
@@ -79,3 +94,4 @@ Tagged releases build the web package on Ubuntu, attach it directly to the GitHu
 - Prevent system sleep separately if the machine must remain reachable; Pi Daemon does not change power-management settings.
 - If a tunnel token is exposed, rotate it in Cloudflare before starting the connector.
 - Existing system/root cloudflared services are not modified; Pi Daemon installs a separate user connector.
+- If outbound traffic is restricted, allow the push-service endpoints returned by subscribed browsers (including `*.push.apple.com` for Apple devices).

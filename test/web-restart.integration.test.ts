@@ -31,11 +31,13 @@ describe("web process boundary", () => {
 
     web = await startWebServer({ port, defaultCwd: root, agentDir: join(root, ".pi", "agent") });
     await expectAttachmentGuards(port);
+    const pushPublicKey = await expectPushSubscriptionRoutes(port);
     await expectSessionList(port);
     await web.close();
     web = undefined;
 
     web = await startWebServer({ port, defaultCwd: root, agentDir: join(root, ".pi", "agent") });
+    expect(await bootstrapPushPublicKey(port)).toBe(pushPublicKey);
     await expectSessionList(port);
   });
 });
@@ -57,6 +59,38 @@ async function startFakeDaemon(socketPath: string): Promise<Server> {
   });
   await new Promise<void>((resolve, reject) => server.once("error", reject).listen(socketPath, resolve));
   return server;
+}
+
+async function expectPushSubscriptionRoutes(port: number): Promise<string> {
+  const publicKey = await bootstrapPushPublicKey(port);
+  expect(publicKey.length).toBeGreaterThan(40);
+  const invalid = await fetch(`http://127.0.0.1:${port}/api/push/subscription`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: "http://push.example.test/device", keys: { p256dh: "public", auth: "auth" } }),
+  });
+  expect(invalid.status).toBe(400);
+  const subscription = { endpoint: "https://push.example.test/device", expirationTime: null, keys: { p256dh: "public", auth: "auth" } };
+  const added = await fetch(`http://127.0.0.1:${port}/api/push/subscription`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(subscription),
+  });
+  expect(added.status).toBe(200);
+  const removed = await fetch(`http://127.0.0.1:${port}/api/push/subscription`, {
+    method: "DELETE",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ endpoint: subscription.endpoint }),
+  });
+  expect(removed.status).toBe(200);
+  expect(await removed.json()).toMatchObject({ ok: true, removed: true });
+  return publicKey;
+}
+
+async function bootstrapPushPublicKey(port: number): Promise<string> {
+  const response = await fetch(`http://127.0.0.1:${port}/api/bootstrap`);
+  expect(response.status).toBe(200);
+  return ((await response.json()) as { pushPublicKey: string }).pushPublicKey;
 }
 
 async function expectAttachmentGuards(port: number): Promise<void> {

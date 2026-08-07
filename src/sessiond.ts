@@ -13,6 +13,7 @@ import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import { loadConfig } from "./config.js";
 import { log } from "./log.js";
 import { getAppPaths, safeSocketFallback } from "./paths.js";
+import { PushService, type PushNotification } from "./push.js";
 import {
   event,
   parseClientCommand,
@@ -28,6 +29,7 @@ interface RuntimeSession {
   session: AgentSession;
   seq: number;
   unsubscribe: () => void;
+  notifications: SessionNotificationTracker;
 }
 
 export interface SessionDaemonHandle {
@@ -41,9 +43,11 @@ export class SessionDaemon {
   private server?: Server;
   private activeSessionId: string | undefined;
   private socketPath: string;
+  private readonly push: PushService;
 
-  constructor(socketPath = getAppPaths().socketPath) {
+  constructor(socketPath = getAppPaths().socketPath, push = new PushService()) {
     this.socketPath = socketPath;
+    this.push = push;
   }
 
   async start(): Promise<SessionDaemonHandle> {
@@ -166,10 +170,18 @@ export class SessionDaemon {
           return;
         }
         this.activeSessionId = runtime.session.sessionId;
+        runtime.notifications.begin();
         this.emitStatus(runtime, "running");
         const images = toImages(command.attachments);
-        void runtime.session.prompt(command.text, images ? { images } : {}).catch((error) => {
-          this.emitStatus(runtime, "error", error instanceof Error ? error.message : String(error));
+        void runtime.session.prompt(command.text, images ? { images } : {}).then(() => {
+          const notification = runtime.notifications.complete(runtime.session.sessionId);
+          if (notification) void this.notify(notification);
+        }).catch((error) => {
+          const message = error instanceof Error ? error.message : "Session failed";
+          const notification = runtime.notifications.fail(runtime.session.sessionId, message);
+          if (!notification) return;
+          this.emitStatus(runtime, "error", message);
+          void this.notify(notification);
         }).finally(() => {
           if (this.activeSessionId === runtime.session.sessionId) this.activeSessionId = undefined;
           this.emitStatus(runtime, "idle");
@@ -189,6 +201,7 @@ export class SessionDaemon {
       case "session.abort": {
         const runtime = await this.getOrOpen(command.sessionId);
         if (runtime.session.isStreaming) {
+          runtime.notifications.abort();
           this.emitStatus(runtime, "aborting");
           await runtime.session.abort();
         }
@@ -236,13 +249,16 @@ export class SessionDaemon {
       settingsManager,
       resourceLoader,
     });
-    const runtime: RuntimeSession = { session, seq: 0, unsubscribe: () => undefined };
+    const runtime: RuntimeSession = { session, seq: 0, unsubscribe: () => undefined, notifications: new SessionNotificationTracker() };
     runtime.unsubscribe = session.subscribe((agentEvent) => this.onAgentEvent(runtime, agentEvent));
     this.sessions.set(session.sessionId, runtime);
     return runtime;
   }
 
   private onAgentEvent(runtime: RuntimeSession, agentEvent: AgentSessionEvent): void {
+    if (agentEvent.type === "message_end") {
+      runtime.notifications.capture(agentEvent.message);
+    }
     this.broadcast(event({ type: "session.event", sessionId: runtime.session.sessionId, seq: ++runtime.seq, event: agentEvent }));
     if (agentEvent.type === "queue_update") this.emitQueue(runtime);
   }
@@ -259,6 +275,18 @@ export class SessionDaemon {
       type: "session.status", sessionId: runtime.session.sessionId, seq: ++runtime.seq, status,
       ...(message ? { message } : {}),
     }));
+  }
+
+  private async notify(notification: PushNotification): Promise<void> {
+    try {
+      const config = await loadConfig();
+      const subject = config.cloudflare?.allowedEmail
+        ? `mailto:${config.cloudflare.allowedEmail}`
+        : "https://localhost";
+      await this.push.send(notification, subject);
+    } catch (error) {
+      log.warn("unable to send session notification", { message: error instanceof Error ? error.message : String(error) });
+    }
   }
 
   private async setModel(runtime: RuntimeSession, provider: string, modelId: string): Promise<void> {
@@ -325,6 +353,66 @@ async function validateCwd(input: string): Promise<string> {
 
 export async function startSessionDaemon(socketPath?: string): Promise<SessionDaemonHandle> {
   return new SessionDaemon(socketPath).start();
+}
+
+export function assistantNotificationPreview(message: unknown): string | undefined {
+  if (!message || typeof message !== "object") return undefined;
+  const record = message as Record<string, unknown>;
+  if (record.role !== "assistant" || !Array.isArray(record.content)) return undefined;
+  const text = record.content.flatMap((part) => {
+    if (!part || typeof part !== "object") return [];
+    const content = part as Record<string, unknown>;
+    return content.type === "text" && typeof content.text === "string" ? [content.text] : [];
+  }).join(" ");
+  const preview = notificationExcerpt(text, "");
+  return preview || undefined;
+}
+
+export class SessionNotificationTracker {
+  private state: "idle" | "running" | "aborted" | "settled" = "idle";
+  private preview: string | undefined;
+
+  begin(): void {
+    this.state = "running";
+    this.preview = undefined;
+  }
+
+  capture(message: unknown): void {
+    if (this.state !== "running") return;
+    const preview = assistantNotificationPreview(message);
+    if (preview) this.preview = preview;
+  }
+
+  abort(): void {
+    if (this.state === "running") this.state = "aborted";
+  }
+
+  complete(sessionId: string): PushNotification | undefined {
+    if (this.state !== "running") return undefined;
+    this.state = "settled";
+    return { sessionId, outcome: "completed", body: this.preview || "Your Pi task is ready to review." };
+  }
+
+  fail(sessionId: string, message: string): PushNotification | undefined {
+    if (this.state !== "running") return undefined;
+    this.state = "settled";
+    return {
+      sessionId,
+      outcome: "failed",
+      body: notificationExcerpt(message, "Open Pi Daemon to review the failure."),
+    };
+  }
+}
+
+export function notificationExcerpt(value: string, fallback: string): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  if (!normalized) return fallback;
+  const characters = Array.from(normalized);
+  if (characters.length <= 160) return normalized;
+  const clipped = characters.slice(0, 159).join("");
+  const wordBoundary = clipped.lastIndexOf(" ");
+  const shortened = wordBoundary >= 96 ? clipped.slice(0, wordBoundary) : clipped;
+  return `${shortened.trimEnd()}…`;
 }
 
 async function main(): Promise<void> {

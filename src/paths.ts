@@ -11,6 +11,8 @@ export interface AppPaths {
   binDir: string;
   logDir: string;
   tunnelTokenFile: string;
+  pushVapidFile: string;
+  pushSubscriptionsDir: string;
 }
 
 export function getAppPaths(env: NodeJS.ProcessEnv = process.env): AppPaths {
@@ -32,6 +34,8 @@ export function getAppPaths(env: NodeJS.ProcessEnv = process.env): AppPaths {
     binDir: join(dataDir, "bin"),
     logDir,
     tunnelTokenFile: join(configDir, "tunnel-token"),
+    pushVapidFile: join(dataDir, "web-push-vapid.json"),
+    pushSubscriptionsDir: join(dataDir, "web-push-subscriptions"),
   };
 }
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-VERSION="${PI_DAEMON_VERSION:-0.1.5}"
+VERSION="${PI_DAEMON_VERSION:-0.1.6}"
 NODE_VERSION="22.19.0"
 PI_VERSION="0.83.0"
 CLOUDFLARED_VERSION="2026.7.3"
@@ -171,6 +171,9 @@ if [ "$install_pi" = true ]; then
   chmod 755 "$BIN_DIR/pi"
   [ -z "$existing_pi" ] || printf 'Existing Pi is not %s; exposing the managed Pi at %s/pi.\n' "$PI_VERSION" "$BIN_DIR"
 fi
+
+printf 'Installing Pi Computer Use extension…\n'
+PATH="$RUNTIME_BIN:$BIN_DIR:$PREFIX/bin:$PATH" "$SELECTED_PI" install npm:@edward40/pi-computer-use
 
 existing_cloudflared="$(command -v cloudflared 2>/dev/null || true)"
 if [ -z "$existing_cloudflared" ] && [ -x "$TOOLS_DIR/cloudflared" ]; then
