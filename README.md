@@ -4,6 +4,8 @@ Pi Daemon runs the [Pi coding agent](https://github.com/earendil-works/pi) in a 
 
 ![Pi Daemon web interface](.github/assets/pi-daemon-web.jpg)
 
+_Current desktop layout. On mobile, the same session list is available from a drawer._
+
 > **Security:** An authenticated mobile user can invoke Pi's coding tools, execute commands, and modify files without per-action confirmation. Limit access to the intended Tailscale login or Cloudflare email, protect that identity, and do not run the service on a machine you are unwilling to control remotely.
 
 ## One-line installation
@@ -56,15 +58,48 @@ pi-daemon uninstall --delete-cloudflare
 
 The default uninstall removes Pi Daemon services and runtime configuration, and disables the Pi Daemon Tailscale Serve listener when it is active. It preserves `~/.pi/agent` authentication and sessions and leaves Cloudflare resources intact. If reinstall choices were saved, uninstall asks whether to preserve or forget them. Deleting Cloudflare resources requires the explicit flag, confirmation, and a fresh browser authorization.
 
-## Tailscale Serve (recommended for private access)
+## Cloudflare Tunnel (default)
 
-Install Tailscale separately and sign in on both the Pi Daemon host and the device that will open the PWA. During `pi-daemon setup`, choose **Tailscale Serve** and confirm the exact Tailscale login allowed to use Pi Daemon. The wizard detects the host's MagicDNS name and configures a persistent HTTPS listener on port 443 forwarding to `http://127.0.0.1:8504`.
+Choose Cloudflare when Pi Daemon needs a public hostname without opening an inbound port. You need a Cloudflare account with an active DNS zone, permission to manage that account and zone, and access to the inbox for the one email address that will be allowed through Access.
 
-Tailscale keeps this URL private to the tailnet. Pi Daemon verifies the exact MagicDNS host and `Tailscale-User-Login` identity header. Tailscale Serve removes spoofed copies of its identity headers before forwarding, while Pi Daemon's backend remains loopback-only. MagicDNS and Tailscale HTTPS must be enabled for the tailnet. If HTTPS consent is required, the Tailscale CLI will guide setup through it.
+### Setup
 
-Pi Daemon will show existing Serve configuration and require confirmation before replacing the root HTTPS port 443 route. `pi-daemon logs tunnel` displays the current Serve status, `pi-daemon restart tunnel` reapplies the route, and uninstall disables that listener. Other Tailscale services and tailnet configuration are not modified.
+1. Run the installer, or rerun `pi-daemon setup`, and choose **Cloudflare Tunnel**.
+2. Open the displayed authorization link in any browser or scan its QR code from another device. Sign in to Cloudflare, review the requested permissions, and authorize Pi Daemon. This works even when setup is running on a headless board.
+3. Select the Cloudflare account and DNS zone when more than one is available.
+4. Accept the default `pi.<zone>` hostname or enter another unused hostname in that zone, then enter the one exact email address allowed to use Pi Daemon.
+5. Choose whether to remember the non-secret setup choices for a future reinstall. The wizard then provisions the Cloudflare resources and installs a dedicated user-level `cloudflared` connector.
+6. Open the displayed mobile URL, enter the allowed email address, and use the One-time PIN sent by Cloudflare.
 
-## Manual Cloudflare API token fallback
+The wizard creates or validates:
+
+- A Zero Trust organization, if the account does not already have one
+- A One-time PIN identity provider, if one is not already configured
+- One remotely managed tunnel with ingress to `http://127.0.0.1:8504`
+- One proxied CNAME for the selected hostname
+- One self-hosted Access application with a 24-hour session
+- One Allow policy that includes only the exact email and requires the One-time PIN login method
+
+New Zero Trust organizations may use Cloudflare's own identity provider by default; Pi Daemon still creates or reuses One-time PIN and makes it the only login method for this application. The origin remains loopback-only, and `cloudflared` makes an outbound connection to Cloudflare, so no router port forwarding is required.
+
+The CLI uses Authorization Code with PKCE. The callback relay holds only the short-lived authorization code, while the PKCE verifier and polling secret stay on the Pi Daemon host. The temporary Cloudflare access token is revoked when setup finishes. Reinstall metadata stores resource IDs and user selections but no OAuth authorization. The long-lived tunnel connector token is written to a mode-0600 file and supplied to `cloudflared` with [`--token-file`](https://developers.cloudflare.com/tunnel/advanced/run-parameters/#token-file), rather than appearing on the process command line.
+
+Matching resources recorded by an earlier setup can be reused. Pi Daemon refuses to overwrite conflicting DNS records or Access applications. A same-named, remotely managed tunnel left by an older uninstall or interrupted setup can be adopted only after an explicit default-No confirmation, and its DNS and exact-email Access policy must still match.
+
+### Verify and troubleshoot
+
+```sh
+pi-daemon status
+pi-daemon doctor
+pi-daemon logs tunnel
+pi-daemon restart tunnel
+```
+
+If the Access login email does not arrive, confirm that the address exactly matches setup and allowlist `noreply@notify.cloudflare.com` in any mail-security service. Cloudflare One-time PINs expire after 10 minutes, are single-use, and a newly requested PIN invalidates the previous one. See Cloudflare's [One-time PIN login guide](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/one-time-pin/) for current login behavior.
+
+The normal uninstall leaves the Cloudflare tunnel, CNAME, and Access application in place. Use `pi-daemon uninstall --delete-cloudflare` to remove the exact managed resources after a fresh browser authorization and confirmation. If the connector token is ever exposed, rotate it in Cloudflare before starting the connector again.
+
+### Manual API token fallback
 
 Browser OAuth is the default. Manual token entry remains available when the release has no OAuth client configured, the callback service is unavailable, or an account administrator has disabled public OAuth applications. If a Cloudflare API token has been exposed, **immediately revoke the exposed token** under **Cloudflare > My Profile > API Tokens**. Do not reuse or retry an exposed token.
 
@@ -90,7 +125,13 @@ Set the token's resource scopes explicitly:
 
 This scoped token is only a fallback because `cloudflared`'s own browser login cannot configure the Access application and exact-email policy. Pi Daemon does not add newly entered manual tokens to the reinstall memo. Older memos containing a saved token remain readable for migration and lose the token the next time choices are saved.
 
-The wizard creates or validates one remotely managed tunnel, one proxied CNAME, one self-hosted Access application, and an Allow policy containing the exact email plus a required One-time PIN login method. Reinstall metadata retains the managed resource IDs. If an older uninstall or interrupted setup left a same-named remote tunnel without those IDs, setup can reuse it only after an explicit default-No confirmation and still refuses conflicting DNS or Access resources.
+## Tailscale Serve (recommended for private access)
+
+Install Tailscale separately and sign in on both the Pi Daemon host and the device that will open the PWA. During `pi-daemon setup`, choose **Tailscale Serve** and confirm the exact Tailscale login allowed to use Pi Daemon. The wizard detects the host's MagicDNS name and configures a persistent HTTPS listener on port 443 forwarding to `http://127.0.0.1:8504`.
+
+Tailscale keeps this URL private to the tailnet. Pi Daemon verifies the exact MagicDNS host and `Tailscale-User-Login` identity header. Tailscale Serve removes spoofed copies of its identity headers before forwarding, while Pi Daemon's backend remains loopback-only. MagicDNS and Tailscale HTTPS must be enabled for the tailnet. If HTTPS consent is required, the Tailscale CLI will guide setup through it.
+
+Pi Daemon will show existing Serve configuration and require confirmation before replacing the root HTTPS port 443 route. `pi-daemon logs tunnel` displays the current Serve status, `pi-daemon restart tunnel` reapplies the route, and uninstall disables that listener. Other Tailscale services and tailnet configuration are not modified.
 
 ## Completion notifications
 

@@ -47,7 +47,10 @@ export function cloudflareOAuthConfig(environment: NodeJS.ProcessEnv = process.e
   const parsedRelay = new URL(relayUrl as string);
   const parsedRedirect = new URL(redirectUri as string);
   if (parsedRelay.protocol !== "https:" || parsedRedirect.protocol !== "https:") throw new Error("Cloudflare OAuth URLs must use HTTPS");
-  const scopes = environment.PI_DAEMON_CLOUDFLARE_OAUTH_SCOPES?.split(/\s+/).filter(Boolean);
+  const configuredScopes = environment.PI_DAEMON_CLOUDFLARE_OAUTH_SCOPES?.trim();
+  const scopes = configuredScopes
+    ? configuredScopes.split(/\s+/).filter(Boolean)
+    : [...CLOUDFLARE_OAUTH_DEFAULTS.scopes];
   return {
     clientId: clientId as string,
     relayUrl: parsedRelay.toString().replace(/\/$/, ""),

@@ -228,6 +228,7 @@ export class CloudflareClient {
   }
 
   private async request<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+    const method = init.method || "GET";
     const response = await this.fetcher(`${API_BASE}${path}`, {
       ...init,
       headers: {
@@ -240,11 +241,11 @@ export class CloudflareClient {
     try {
       envelope = await response.json() as ApiEnvelope<T>;
     } catch {
-      throw new CloudflareApiError(response.status, `Cloudflare API returned ${response.status}`);
+      throw new CloudflareApiError(response.status, `${method} ${path}: Cloudflare API returned ${response.status}`);
     }
     if (!response.ok || !envelope.success) {
       const message = envelope.errors?.map((item) => item.message).filter(Boolean).join("; ") || `Cloudflare API returned ${response.status}`;
-      throw new CloudflareApiError(response.status, message);
+      throw new CloudflareApiError(response.status, `${method} ${path}: ${message}`);
     }
     return envelope.result;
   }

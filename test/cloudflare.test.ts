@@ -37,7 +37,7 @@ describe("Cloudflare provisioning", () => {
     };
 
     await expect(new CloudflareClient("api-token-secret", fetcher).checkSetupAccess("account-id", "zone-id"))
-      .rejects.toThrow("API token cannot access Access applications: failed");
+      .rejects.toThrow("API token cannot access Access applications: GET /accounts/account-id/access/apps?per_page=5: failed");
   });
 
   it("creates an exact-email OTP policy and token-file-compatible tunnel", async () => {

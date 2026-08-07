@@ -60,11 +60,13 @@ describe("Cloudflare OAuth", () => {
       clientId: "eb36f8ba635473b58f875d14bd8656ac",
       relayUrl: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev",
       redirectUri: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev/callback",
+      scopes: ["dns.write", "zone.read", "zone-access.write", "access-acct.write", "argotunnel.write", "account-settings.read"],
     });
     expect(cloudflareOAuthConfig({ PI_DAEMON_CLOUDFLARE_OAUTH_CLIENT_ID: "client" })).toEqual({
       clientId: "client",
       relayUrl: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev",
       redirectUri: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev/callback",
+      scopes: ["dns.write", "zone.read", "zone-access.write", "access-acct.write", "argotunnel.write", "account-settings.read"],
     });
     expect(() => cloudflareOAuthConfig({
       PI_DAEMON_CLOUDFLARE_OAUTH_CLIENT_ID: "client",
