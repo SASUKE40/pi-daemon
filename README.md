@@ -109,10 +109,10 @@ Choose **Create Custom Token**, scope it to one account and one DNS zone, and ad
 
 - Account > Account Settings > Read
 - Account > Cloudflare Tunnel > Edit/Write
-- Account > Access: Apps and Policies > Edit/Write
 - Account > Access: Organizations, Identity Providers, and Groups > Edit/Write
 - Zone > Zone > Read
 - Zone > DNS > Edit/Write
+- Zone > Access: Apps and Policies > Edit/Write
 
 ![Cloudflare custom API token permission setup](.github/assets/cloudflare-api-token-guide.jpg)
 

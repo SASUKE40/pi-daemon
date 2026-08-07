@@ -424,10 +424,10 @@ function printCloudflareTokenInstructions(prompt: TerminalPrompter): void {
   prompt.print("Permissions (Cloudflare may label Edit as Write):");
   prompt.print("  Account · Account Settings · Read");
   prompt.print("  Account · Cloudflare Tunnel · Edit");
-  prompt.print("  Account · Access: Apps and Policies · Edit");
   prompt.print("  Account · Access: Organizations, Identity Providers, and Groups · Edit");
   prompt.print("  Zone    · Zone · Read");
   prompt.print("  Zone    · DNS · Edit");
+  prompt.print("  Zone    · Access: Apps and Policies · Edit");
   prompt.print("Scope Account Resources to the account and Zone Resources to the DNS zone you want to use.");
 }
 

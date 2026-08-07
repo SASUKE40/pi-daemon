@@ -86,11 +86,28 @@ export async function installUserServices(config: PiDaemonConfig, commands: Serv
       await writeFile(target, content, { mode: 0o600 });
       const label = name.replace(/\.plist$/, "");
       await execFileAsync("launchctl", ["bootout", `${domain}/${label}`]).catch(() => undefined);
-      await execFileAsync("launchctl", ["bootstrap", domain, target]);
+      await bootstrapLaunchAgent(domain, target);
     }
     return;
   }
   throw new Error(`Unsupported service platform: ${process.platform}`);
+}
+
+async function bootstrapLaunchAgent(domain: string, target: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      await execFileAsync("launchctl", ["bootstrap", domain, target]);
+      return;
+    } catch (error) {
+      lastError = error;
+      const item = error as { code?: number | string; stderr?: string };
+      const retryable = item.code === 5 || item.code === "5" || item.stderr?.includes("Bootstrap failed: 5");
+      if (!retryable || attempt === 5) throw error;
+      await new Promise((resolve) => setTimeout(resolve, attempt * 100));
+    }
+  }
+  throw lastError;
 }
 
 export async function stopAndRemoveUserServices(): Promise<void> {

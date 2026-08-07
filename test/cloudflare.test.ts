@@ -54,7 +54,7 @@ describe("Cloudflare provisioning", () => {
 
     expect(requests).toEqual([
       "https://api.cloudflare.com/client/v4/accounts/account-id/cfd_tunnel?is_deleted=false&per_page=5",
-      "https://api.cloudflare.com/client/v4/accounts/account-id/access/apps?per_page=5",
+      "https://api.cloudflare.com/client/v4/zones/zone-id/access/apps?per_page=5",
       "https://api.cloudflare.com/client/v4/accounts/account-id/access/identity_providers",
       "https://api.cloudflare.com/client/v4/accounts/account-id/access/organizations",
       "https://api.cloudflare.com/client/v4/zones/zone-id/dns_records?per_page=5",
@@ -69,7 +69,17 @@ describe("Cloudflare provisioning", () => {
     };
 
     await expect(new CloudflareClient("api-token-secret", fetcher).checkSetupAccess("account-id", "zone-id"))
-      .rejects.toThrow("API token cannot access Access applications: GET /accounts/account-id/access/apps?per_page=5: failed");
+      .rejects.toThrow("API token cannot access Access applications: GET /zones/zone-id/access/apps?per_page=5: failed");
+  });
+
+  it("identifies a Cloudflare challenge instead of reporting an opaque 403", async () => {
+    const fetcher: typeof fetch = async () => new Response("<html>challenge</html>", {
+      status: 403,
+      headers: { "cf-mitigated": "challenge", "cf-ray": "abc123-SEA", "content-type": "text/html" },
+    });
+
+    await expect(new CloudflareClient("api-token-secret", fetcher).accounts())
+      .rejects.toThrow("GET /accounts?per_page=50: Cloudflare challenge blocked the API request (ray abc123)");
   });
 
   it("creates an exact-email OTP policy and token-file-compatible tunnel", async () => {
@@ -103,6 +113,8 @@ describe("Cloudflare provisioning", () => {
     expect(body.auto_redirect_to_identity).toBe(true);
     expect(body.policies[0].include).toEqual([{ email: { email: "only@example.com" } }]);
     expect(body.policies[0].require).toEqual([{ login_method: { id: "otp-id" } }]);
+    expect(requests.some((item) => item.url.startsWith("https://api.cloudflare.com/client/v4/zones/zone-id/access/apps"))).toBe(true);
+    expect(requests.some((item) => item.url.startsWith("https://api.cloudflare.com/client/v4/accounts/account-id/access/apps"))).toBe(false);
     expect(JSON.stringify(requests)).not.toContain("tunnel-token-secret");
   });
 

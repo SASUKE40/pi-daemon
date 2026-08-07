@@ -72,7 +72,7 @@ export class CloudflareClient {
 
   async checkSetupAccess(accountId: string, zoneId: string): Promise<void> {
     await this.checkReadable("Cloudflare Tunnels", `/accounts/${accountId}/cfd_tunnel?is_deleted=false&per_page=5`);
-    await this.checkReadable("Access applications", `/accounts/${accountId}/access/apps?per_page=5`, true);
+    await this.checkReadable("Access applications", `/zones/${zoneId}/access/apps?per_page=5`, true);
     await this.checkReadable("Access identity providers", `/accounts/${accountId}/access/identity_providers`, true);
     await this.checkReadable("Access organization", `/accounts/${accountId}/access/organizations`, true);
     await this.checkReadable("DNS records", `/zones/${zoneId}/dns_records?per_page=5`);
@@ -107,7 +107,7 @@ export class CloudflareClient {
   }
 
   async deleteManaged(config: CloudflareConfig): Promise<void> {
-    await this.request(`/accounts/${config.accountId}/access/apps/${config.accessAppId}`, { method: "DELETE" });
+    await this.request(`/zones/${config.zoneId}/access/apps/${config.accessAppId}`, { method: "DELETE" });
     const records = await this.request<DnsRecord[]>(`/zones/${config.zoneId}/dns_records?name=${encodeURIComponent(config.hostname)}&type=CNAME`);
     for (const record of records) {
       if (record.content === `${config.tunnelId}.cfargotunnel.com`) await this.request(`/zones/${config.zoneId}/dns_records/${record.id}`, { method: "DELETE" });
@@ -175,14 +175,14 @@ export class CloudflareClient {
   }
 
   private async ensureAccessApp(input: ProvisionInput, idpId: string, created: string[]): Promise<AccessApplication> {
-    const apps = await this.request<AccessApplication[]>(`/accounts/${input.accountId}/access/apps?per_page=100`);
+    const apps = await this.request<AccessApplication[]>(`/zones/${input.zoneId}/access/apps?per_page=100`);
     const existing = apps.find((app) => app.domain.toLowerCase() === input.hostname.toLowerCase());
     if (existing) {
       if (existing.type !== "self_hosted" || ((!input.previous || input.previous.accessAppId !== existing.id) && !input.adoptExisting)) throw new Error(`Access application conflict: ${input.hostname}`);
       await this.ensureExactEmailPolicy(input, existing, idpId, created);
       return existing;
     }
-    const app = await this.request<AccessApplication>(`/accounts/${input.accountId}/access/apps`, {
+    const app = await this.request<AccessApplication>(`/zones/${input.zoneId}/access/apps`, {
       method: "POST",
       body: JSON.stringify({
         name: `Pi Daemon – ${input.hostname}`,
@@ -200,7 +200,7 @@ export class CloudflareClient {
   }
 
   private async ensureExactEmailPolicy(input: ProvisionInput, app: AccessApplication, idpId: string, changed: string[]): Promise<void> {
-    const policies = await this.request<AccessPolicy[]>(`/accounts/${input.accountId}/access/apps/${app.id}/policies`);
+    const policies = await this.request<AccessPolicy[]>(`/zones/${input.zoneId}/access/apps/${app.id}/policies`);
     const exactEmail = policies.find((policy) => policy.name === "Pi Daemon exact email" && policy.decision === "allow");
     const github = policies.find((policy) => policy.name === "Pi Daemon GitHub organization" && policy.decision === "allow");
     const managed = exactEmail || github;
@@ -209,7 +209,7 @@ export class CloudflareClient {
     if (exactEmail && matchesExactEmailPolicy(exactEmail, input.allowedEmail, idpId) && !otherAllow) {
       if (!matchesOtpApp(app, idpId)) {
         if (!input.previous || input.previous.accessAppId !== app.id) throw new Error(`Existing Access app for ${input.hostname} is not restricted to One-time PIN login`);
-        await this.updateAccessApp(input.accountId, app, idpId);
+        await this.updateAccessApp(input.zoneId, app, idpId);
         changed.push("One-time PIN login for Access application");
       }
       return;
@@ -224,18 +224,18 @@ export class CloudflareClient {
       throw new Error(`Existing Access app for ${input.hostname} does not have the expected exclusive exact-email OTP policy`);
     }
 
-    await this.request(`/accounts/${input.accountId}/access/apps/${app.id}/policies/${managed.id}`, {
+    await this.request(`/zones/${input.zoneId}/access/apps/${app.id}/policies/${managed.id}`, {
       method: "PUT",
       body: JSON.stringify(exactEmailPolicy(input.allowedEmail, idpId)),
     });
-    await this.updateAccessApp(input.accountId, app, idpId);
+    await this.updateAccessApp(input.zoneId, app, idpId);
     changed.push(matchesPreviousGitHub
       ? "Access policy migrated from GitHub to email OTP"
       : "Exact-email OTP Access policy");
   }
 
-  private async updateAccessApp(accountId: string, app: AccessApplication, idpId: string): Promise<void> {
-    await this.request(`/accounts/${accountId}/access/apps/${app.id}`, {
+  private async updateAccessApp(zoneId: string, app: AccessApplication, idpId: string): Promise<void> {
+    await this.request(`/zones/${zoneId}/access/apps/${app.id}`, {
       method: "PUT",
       body: JSON.stringify({
         name: app.name,
@@ -274,11 +274,17 @@ export class CloudflareClient {
         ...(init.headers || {}),
       },
     });
+    const responseBody = await response.text();
     let envelope: ApiEnvelope<T>;
     try {
-      envelope = await response.json() as ApiEnvelope<T>;
+      envelope = JSON.parse(responseBody) as ApiEnvelope<T>;
     } catch {
-      throw new CloudflareApiError(response.status, `${method} ${path}: Cloudflare API returned ${response.status}`);
+      const mitigation = response.headers.get("cf-mitigated");
+      const ray = response.headers.get("cf-ray")?.split("-")[0];
+      const detail = mitigation
+        ? `Cloudflare ${mitigation} blocked the API request${ray ? ` (ray ${ray})` : ""}`
+        : `Cloudflare API returned ${response.status}`;
+      throw new CloudflareApiError(response.status, `${method} ${path}: ${detail}`);
     }
     if (!response.ok || !envelope.success) {
       const message = envelope.errors?.map((item) => item.message).filter(Boolean).join("; ") || `Cloudflare API returned ${response.status}`;
