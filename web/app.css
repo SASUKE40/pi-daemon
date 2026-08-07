@@ -190,6 +190,7 @@ button:disabled { cursor: default; }
 .statusDot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 4px #73d69a12; }
 .statusDot.running, .statusDot.aborting { background: var(--amber); box-shadow: 0 0 0 4px var(--amber-soft); animation: breathe 1.3s ease-in-out infinite; }
 .statusDot.error { background: var(--red); }
+.statusDot.disconnected { background: var(--red); box-shadow: 0 0 0 4px #ff8f8f12; }
 @keyframes breathe { 50% { opacity: .45; transform: scale(.85); } }
 
 .headerActions { display: flex; align-items: center; gap: 7px; }
@@ -290,9 +291,14 @@ button:disabled { cursor: default; }
 
 .popupPositioner { z-index: 50; outline: 0; }
 .selectPopup, .comboboxPopup, .menuPopup { min-width: var(--anchor-width); max-width: min(390px, calc(100vw - 24px)); max-height: min(410px, var(--available-height)); border: 1px solid var(--line-bright); border-radius: 13px; background: #171b1cf7; box-shadow: var(--shadow); overflow: hidden; transform-origin: var(--transform-origin); }
+.selectPopup { min-width: max(160px, var(--anchor-width)); overflow-y: auto; }
 .selectPopup[data-starting-style], .comboboxPopup[data-starting-style], .menuPopup[data-starting-style] { opacity: 0; transform: scale(.97); }
 .popupList { max-height: 320px; overflow: auto; padding: 5px; }
 .popupItem, .menuItem { position: relative; display: grid; min-height: 42px; grid-template-columns: 18px minmax(0, 1fr); align-items: center; gap: 7px; padding: 6px 9px; border-radius: 9px; outline: 0; color: var(--ink-soft); font-size: 12px; cursor: default; }
+.selectPopup .popupItem > :last-child { grid-column: 2; }
+.comboboxPopup .popupItem > [aria-hidden="true"] { grid-column: 1; grid-row: 1 / span 2; align-self: center; justify-self: center; }
+.comboboxPopup .popupItem > span:not([aria-hidden="true"]) { grid-column: 2; grid-row: 1; }
+.comboboxPopup .popupItem > small { grid-column: 2; grid-row: 2; }
 .popupItem[data-highlighted], .menuItem[data-highlighted] { color: var(--ink); background: #ffffff0a; }
 .popupItem small { grid-column: 2; overflow: hidden; margin-top: -5px; color: var(--ink-faint); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .popupSearch { width: calc(100% - 12px); min-height: 40px; margin: 6px; border: 1px solid var(--line); border-radius: 9px; outline: 0; padding: 0 10px; background: #0d1011; }
@@ -339,7 +345,7 @@ button:disabled { cursor: default; }
 .toastDescription { margin-top: 3px; color: #d6b0b0; font-size: 11px; line-height: 1.4; }
 .toastClose { display: grid; flex: 0 0 44px; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 10px; color: #d6b0b0; background: #ffffff0a; }
 
-@media (max-width: 800px) {
+@media (max-width: 800px), (max-width: 950px) and (max-height: 600px) {
   .appShell { grid-template-columns: 1fr; }
   .sessionRail { display: none; }
   .mobileOnly { display: grid; }
@@ -347,22 +353,38 @@ button:disabled { cursor: default; }
   .sessionHeading h1 { font-size: 15px; }
   .sessionHeading p { max-width: 52vw; }
   .runPill { display: none; }
-  .timeline { padding: 24px 13px 164px; }
+  .timeline { padding: 24px 13px 18px; }
   .message.user { max-width: 90%; }
   .message.assistant { max-width: 100%; }
-  .composerDock { padding-right: 10px; padding-bottom: max(9px, env(safe-area-inset-bottom)); padding-left: 10px; }
+  .composerDock { position: relative; padding: 12px 10px max(9px, env(safe-area-inset-bottom)); background: linear-gradient(#0b0d0e00, var(--canvas) 18%); }
   .composerPanel { border-radius: 16px; }
+  .composerPanel textarea { max-height: 30dvh; resize: none; }
   .composerHint { display: none; }
+  .attachButton, .stopButton { min-width: 44px; min-height: 44px; justify-content: center; }
   .attachButton span { display: none; }
-  .jumpButton { bottom: 168px; }
+  .jumpButton { bottom: 205px; }
   .dialogViewport { align-items: end; padding: 10px; }
   .dialogPopup { width: 100%; border-radius: 20px 20px 14px 14px; padding: 23px 19px max(19px, env(safe-area-inset-bottom)); }
+  .dialogClose { top: 12px; right: 12px; width: 44px; height: 44px; }
+  .popupItem, .menuItem { min-height: 44px; }
   .mobileSessionDrawer { position: fixed; top: 0; bottom: 0; left: 0; width: min(88vw, 340px); height: 100dvh; padding: 0; border-width: 0 1px 0 0; border-radius: 0; transform-origin: left; overflow: hidden; }
   .mobileSessionDrawer[data-starting-style], .mobileSessionDrawer[data-ending-style] { transform: translateX(-100%); }
   .mobileSessionDrawer > .dialogClose { z-index: 2; top: max(18px, env(safe-area-inset-top)); }
   .mobileSessionDrawer > .dialogTitle, .mobileSessionDrawer > .dialogDescription { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
   .mobileSessionDrawer .sidebarContent { padding-top: env(safe-area-inset-top); }
   .popupPositioner { max-width: calc(100vw - 20px); }
+}
+
+@media (max-width: 950px) and (max-height: 500px) {
+  .sessionHeader { min-height: 64px; }
+  .timeline { padding-top: 12px; }
+  .emptyState { min-height: 100%; }
+  .emptyMark, .emptyState > .eyebrow { display: none; }
+  .emptyState h2 { margin: 0 0 6px; font-size: 23px; }
+  .emptyState > p:not(.eyebrow) { max-width: 600px; margin-bottom: 12px; font-size: 12px; line-height: 1.4; }
+  .composerDock { padding-top: 8px; }
+  .composerPanel textarea { min-height: 54px; max-height: 70px; }
+  .jumpButton { bottom: 180px; }
 }
 
 @media (max-width: 480px) {

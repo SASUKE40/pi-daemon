@@ -315,7 +315,7 @@ export function PiDaemonApp(): ReactNode {
         <header className="sessionHeader">
           <TipButton className="iconButton mobileOnly" label="Open sessions" onClick={() => setSidebarOpen(true)}>☰</TipButton>
           <div className="sessionHeading">
-            <div className="eyebrow"><span className={`statusDot ${state.status}`} />{connectionLabel}</div>
+            <div className="eyebrow"><span className={`statusDot ${state.connected && state.daemonConnected ? state.status : "disconnected"}`} />{connectionLabel}</div>
             <h1>{title}</h1>
             <p>{state.current?.cwd || bootstrap?.defaultCwd || "Starting…"}</p>
           </div>
@@ -347,7 +347,7 @@ export function PiDaemonApp(): ReactNode {
           }}
         >
           <div className="timelineInner">
-            {state.timeline.length ? state.timeline.map((item, index) => <TimelineItem key={index} item={item} />) : <EmptyState connected={state.connected} onCreate={() => setNewSessionOpen(true)} />}
+            {state.timeline.length ? state.timeline.map((item, index) => <TimelineItem key={index} item={item} />) : <EmptyState connected={state.connected} hasSession={Boolean(state.current)} onCreate={() => setNewSessionOpen(true)} />}
           </div>
         </section>
 
@@ -462,7 +462,7 @@ function Composer(props: {
   return (
     <section className="composerDock">
       <div className="composerPanel">
-        <div className="composerControls">
+        {props.current && <div className="composerControls">
           {modelItems.length > 0 && (
             <Combobox.Root
               items={modelItems}
@@ -493,7 +493,7 @@ function Composer(props: {
             onChange={(value) => props.onThinking(value as ThinkingLevel)}
           />
           {props.status === "running" && <ControlSelect label="Message delivery" value={props.delivery} items={[{ value: "followUp", label: "Follow up" }, { value: "steer", label: "Steer now" }]} onChange={(value) => props.onDelivery(value as "steer" | "followUp")} />}
-        </div>
+        </div>}
         {props.attachments.length > 0 && <div className="attachmentList">{props.attachments.map((attachment) => <span className="attachmentChip" key={attachment.id}>{attachment.name}<button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => props.onRemoveAttachment(attachment.id)}>×</button></span>)}</div>}
         <textarea
           value={props.draft}
@@ -587,7 +587,10 @@ function MarkdownText({ text, streaming = false }: { text: string; streaming?: b
   return <Suspense fallback={<span className="markdownFallback">{text}</span>}><StreamdownRenderer className="markdownBody" mode={streaming ? "streaming" : "static"} isAnimating={streaming} animated={streaming} controls={false} lineNumbers={false}>{text}</StreamdownRenderer></Suspense>;
 }
 
-function EmptyState({ connected, onCreate }: { connected: boolean; onCreate(): void }): ReactNode {
+function EmptyState({ connected, hasSession, onCreate }: { connected: boolean; hasSession: boolean; onCreate(): void }): ReactNode {
+  if (hasSession) {
+    return <div className="emptyState"><span className="emptyMark">π</span><p className="eyebrow">Ready for a task</p><h2>What should Pi work on?</h2><p>Describe the outcome you want below. You can add images and adjust the model’s thinking level before sending.</p></div>;
+  }
   return <div className="emptyState"><span className="emptyMark">π</span><p className="eyebrow">{connected ? "Agent online" : "Connecting"}</p><h2>Put Pi to work from anywhere.</h2><p>Start a persistent coding session, leave the app, and get notified when the result is ready.</p><Button className="primaryButton" onClick={onCreate}>Create your first session</Button></div>;
 }
 

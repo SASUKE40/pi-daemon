@@ -126,11 +126,17 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
     sockets.add(socket);
     socket.send(JSON.stringify(event({ type: "ready" })));
     socket.on("message", (raw) => {
+      let command: ClientCommand;
       try {
-        const command = parseClientCommand(JSON.parse(raw.toString()));
-        ipc.send(resolveAttachments(command, attachments));
+        command = parseClientCommand(JSON.parse(raw.toString()));
       } catch (error) {
         socket.send(JSON.stringify(event({ type: "error", code: "invalid_request", message: error instanceof Error ? error.message : String(error) })));
+        return;
+      }
+      try {
+        ipc.send(resolveAttachments(command, attachments));
+      } catch (error) {
+        socket.send(JSON.stringify(event({ type: "error", code: "daemon_unavailable", message: error instanceof Error ? error.message : String(error) })));
       }
     });
     socket.on("close", () => sockets.delete(socket));

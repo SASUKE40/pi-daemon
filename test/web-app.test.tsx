@@ -177,6 +177,31 @@ describe("PiDaemonApp", () => {
     expect(screen.getByText(/Service Worker and Push APIs/)).toBeTruthy();
   });
 
+  it("shows task guidance instead of another first-session action for an empty active session", async () => {
+    render(<Tooltip.Provider><Toast.Provider><PiDaemonApp /><ToastViewport /></Toast.Provider></Tooltip.Provider>);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    await act(async () => {
+      socket?.onopen?.();
+      socket?.emit({
+        type: "session.snapshot",
+        protocolVersion: 1,
+        session: {
+          id: "empty-session",
+          cwd: "/workspace",
+          name: "Empty work",
+          thinking: "medium",
+          streaming: false,
+          messages: [],
+          availableModels: [],
+        },
+      });
+    });
+
+    expect(await screen.findByRole("heading", { name: "What should Pi work on?" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Create your first session" })).toBeNull();
+  });
+
   it("prioritizes URL and service-worker session deep links, reconnects, and deduplicates outage toasts", async () => {
     window.localStorage.setItem("pi-daemon-last-session", "remembered-session");
     window.history.replaceState({}, "", "/?session=query-session");
