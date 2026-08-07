@@ -14,6 +14,16 @@ describe("session notification previews", () => {
     expect(assistantNotificationPreview({ role: "user", content: [{ type: "text", text: "ignore" }] })).toBeUndefined();
   });
 
+  it("converts Markdown into readable notification text", () => {
+    expect(assistantNotificationPreview({
+      role: "assistant",
+      content: [{
+        type: "text",
+        text: "## **Ready** to ship\n\n- Updated [`app.ts`](https://example.test/app)\n- Kept `npm test` green &amp; documented it",
+      }],
+    })).toBe("Ready to ship Updated app.ts Kept npm test green & documented it");
+  });
+
   it("uses a Unicode-safe 160-character maximum and a fallback", () => {
     const excerpt = notificationExcerpt(`${"🙂 ".repeat(100)}the end`, "fallback");
     expect(Array.from(excerpt).length).toBeLessThanOrEqual(160);

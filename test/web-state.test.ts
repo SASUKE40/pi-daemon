@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { appReducer, decodeApplicationServerKey } from "../web/app.tsx";
+import { appReducer, decodeApplicationServerKey, filterSlashCommands, slashCommandQuery } from "../web/app.tsx";
 
 describe("React web state", () => {
   it("replaces live assistant output with the finalized message", () => {
-    const initial = { connected: true, daemonConnected: true, sessions: [], timeline: [], status: "running" as const };
+    const initial = { connected: true, daemonConnected: true, sessions: [], timeline: [], status: "running" as const, queue: { steering: [], followUp: [] } };
     const streaming = appReducer(initial, { type: "session.event", value: { type: "message_update", message: { role: "assistant", content: [{ type: "text", text: "Hel" }] } } });
     expect(streaming.timeline).toHaveLength(1);
     expect((streaming.timeline[0] as { __live?: boolean }).__live).toBe(true);
@@ -14,5 +14,17 @@ describe("React web state", () => {
 
   it("decodes a URL-safe VAPID application key", () => {
     expect(Array.from(decodeApplicationServerKey("AQIDBA"))).toEqual([1, 2, 3, 4]);
+  });
+
+  it("opens slash completion only for a command token and prioritizes name matches", () => {
+    const commands = [
+      { name: "review", description: "Inspect the change", source: "extension" as const },
+      { name: "skill:inspect", description: "Review with a skill", source: "skill" as const },
+      { name: "release", description: "Ship to production", source: "prompt" as const },
+    ];
+    expect(slashCommandQuery("/")).toBe("");
+    expect(slashCommandQuery("/review ")).toBeUndefined();
+    expect(slashCommandQuery("message /review")).toBeUndefined();
+    expect(filterSlashCommands(commands, "rev").map((command) => command.name)).toEqual(["review", "skill:inspect"]);
   });
 });

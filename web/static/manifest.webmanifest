@@ -1,12 +1,12 @@
 {
-  "name": "Pi Daemon",
-  "short_name": "Pi",
+  "name": "PI Remote",
+  "short_name": "PI Remote",
   "id": "/",
   "description": "Secure mobile interface for the Pi coding agent",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#0b0d0e",
-  "theme_color": "#0b0d0e",
+  "background_color": "#111a1f",
+  "theme_color": "#527f91",
   "icons": [
     { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },

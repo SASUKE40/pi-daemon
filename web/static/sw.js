@@ -1,4 +1,4 @@
-const CACHE = "pi-daemon-assets-v2";
+const CACHE = "pi-daemon-assets-v3";
 const APP_ASSETS = [
   "/icon.svg",
   "/icon-192.png",

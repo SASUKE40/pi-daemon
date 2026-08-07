@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-VERSION="${PI_DAEMON_VERSION:-0.1.15}"
+VERSION="${PI_DAEMON_VERSION:-0.1.16}"
 NODE_VERSION="22.19.0"
 PI_VERSION="0.84.1"
 CLOUDFLARED_VERSION="2026.7.3"
@@ -100,7 +100,9 @@ else
 fi
 RUNTIME_BIN="$(dirname "$SELECTED_NODE")"
 PATH="$RUNTIME_BIN:$PATH"
-export PATH
+NPM_CONFIG_LOGLEVEL="error"
+NPM_CONFIG_PROGRESS="false"
+export PATH NPM_CONFIG_LOGLEVEL NPM_CONFIG_PROGRESS
 "$SELECTED_NODE" -e 'const [a,b]=process.versions.node.split(".").map(Number);if(a<22||(a===22&&b<19))process.exit(1)' || fail "Node.js >=22.19.0 is required"
 
 existing_pi="$(command -v pi 2>/dev/null || true)"

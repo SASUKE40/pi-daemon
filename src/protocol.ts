@@ -9,6 +9,12 @@ export interface ImageAttachment {
   name?: string;
 }
 
+export interface SlashCommand {
+  name: string;
+  description?: string;
+  source: "extension" | "prompt" | "skill";
+}
+
 interface CommandBase {
   protocolVersion: typeof PROTOCOL_VERSION;
   requestId: string;
@@ -45,6 +51,7 @@ export interface SessionSnapshot {
   streaming: boolean;
   messages: unknown[];
   availableModels: Array<{ provider: string; id: string; name?: string }>;
+  slashCommands: SlashCommand[];
 }
 
 export type ServerEvent =

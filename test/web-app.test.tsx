@@ -4,7 +4,7 @@ import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { InstallGuidance, NotificationSettings, PiDaemonApp, ToastViewport } from "../web/app.js";
+import { InstallGuidance, modelProviderKind, NotificationSettings, PiDaemonApp, ToastViewport } from "../web/app.js";
 
 class FakeWebSocket {
   static readonly OPEN = 1;
@@ -49,6 +49,8 @@ beforeEach(() => {
     configurable: true,
     value: class { observe() {} unobserve() {} disconnect() {} },
   });
+  Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:screen-preview") });
+  Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
   vi.stubGlobal("WebSocket", FakeWebSocket);
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -58,11 +60,26 @@ beforeEach(() => {
   }));
 });
 
+describe("modelProviderKind", () => {
+  it.each([
+    ["openai-codex", "openai"],
+    ["anthropic", "anthropic"],
+    ["google-gemini", "google"],
+    ["xai", "xai"],
+    ["mistral", "mistral"],
+    ["local", "generic"],
+  ] as const)("maps %s to the %s company mark", (provider, expected) => {
+    expect(modelProviderKind(provider)).toBe(expected);
+  });
+});
+
 afterEach(() => {
   cleanup();
   Reflect.deleteProperty(window.navigator, "serviceWorker");
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+  Reflect.deleteProperty(URL, "createObjectURL");
+  Reflect.deleteProperty(URL, "revokeObjectURL");
 });
 
 describe("PiDaemonApp", () => {
@@ -107,9 +124,14 @@ describe("PiDaemonApp", () => {
     expect(await screen.findByRole("heading", { name: "Ready to work" })).toBeTruthy();
     expect((await screen.findByText("Safe")).closest('[data-streamdown="strong"]')).not.toBeNull();
     expect(screen.getByRole("listitem").textContent).toContain("Markdown");
+    expect(document.querySelector<HTMLImageElement>(".brandMark")?.getAttribute("src")).toBe("/icon.svg?v=cool-slate");
+    expect(document.querySelector<HTMLImageElement>(".assistantMark")?.getAttribute("src")).toBe("/icon.svg?v=cool-slate");
+    expect(document.querySelector(".modelIcon .providerIconGlyph")).not.toBeNull();
+    expect(document.querySelector(".modelIcon")?.getAttribute("data-provider")).toBe("openai");
+    expect(document.querySelector(".brainIcon")).not.toBeNull();
 
     await user.click(screen.getByRole("combobox", { name: "Thinking" }));
-    await user.click(await screen.findByRole("option", { name: "Think: high" }));
+    await user.click(await screen.findByRole("option", { name: "high" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.setThinking", sessionId: "session-1", thinking: "high" }));
 
     await user.click(screen.getByRole("combobox", { name: "Model" }));
@@ -128,26 +150,31 @@ describe("PiDaemonApp", () => {
     await waitFor(() => expect(document.querySelector('.message.live [data-streamdown="strong"]')?.textContent?.replace(/\s+/gu, " ").trim()).toBe("Working now"));
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
     await user.type(textarea, "Continue afterward");
-    fireEvent.keyDown(textarea, { key: "Enter" });
+    await user.click(screen.getByRole("button", { name: "Queue message" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.followUp", text: "Continue afterward" }));
+    await act(async () => socket?.emit({ type: "queue.update", protocolVersion: 1, sessionId: "session-1", seq: 3, steering: [], followUp: ["Continue afterward"] }));
+    expect((await screen.findByRole("list", { name: "Queued messages" })).textContent).toContain("Continue afterward");
+    expect(screen.getByText("Queued")).toBeTruthy();
 
     await user.click(screen.getByRole("combobox", { name: "Message delivery" }));
     await user.click(await screen.findByRole("option", { name: "Steer now" }));
     await user.type(textarea, "Change direction");
-    fireEvent.keyDown(textarea, { key: "Enter" });
+    await user.click(screen.getByRole("button", { name: "Steer message" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.steer", text: "Change direction" }));
     await user.click(screen.getByRole("button", { name: "Stop" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.abort", sessionId: "session-1" }));
 
-    await act(async () => socket?.emit({ type: "session.status", protocolVersion: 1, sessionId: "session-1", seq: 3, status: "idle" }));
+    await act(async () => socket?.emit({ type: "session.status", protocolVersion: 1, sessionId: "session-1", seq: 4, status: "idle" }));
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
     expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
 
     const uploadInput = document.querySelector<HTMLInputElement>('input[type="file"]');
     expect(uploadInput).not.toBeNull();
     const file = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "screen.png", { type: "image/png" });
     await act(async () => fireEvent.change(uploadInput as HTMLInputElement, { target: { files: [file] } }));
-    expect(await screen.findByText("screen.png")).toBeTruthy();
+    const preview = await screen.findByRole("img", { name: "screen.png" });
+    expect(preview.getAttribute("src")).toBe("blob:screen-preview");
     await user.type(textarea, "Inspect this");
     await user.click(screen.getByRole("button", { name: "Send message" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({
@@ -155,6 +182,7 @@ describe("PiDaemonApp", () => {
       text: "Inspect this",
       attachments: [{ id: "image-1", mimeType: "image/png" }],
     }));
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:screen-preview");
   });
 
   it("uses Base UI dialogs for new sessions and Home Screen guidance", async () => {
@@ -175,11 +203,30 @@ describe("PiDaemonApp", () => {
     await user.click(within(dialog).getByRole("button", { name: "Create session" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.create", cwd: "/tmp/project", name: "New work" }));
 
-    await user.click(screen.getByRole("button", { name: "Add to Home Screen" }));
+    screen.getByRole("button", { name: "Session actions" }).focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("Run status")).toBeTruthy();
+    await user.click(screen.getByRole("menuitem", { name: "Add to Home Screen" }));
     expect(await screen.findByRole("dialog", { name: "Add Pi to your Home Screen" })).toBeTruthy();
     expect(screen.getByText(/Open your browser’s menu/)).toBeTruthy();
     expect(await screen.findByText("Not supported here")).toBeTruthy();
     expect(screen.getByText(/Service Worker and Push APIs/)).toBeTruthy();
+  });
+
+  it("switches between persistent light and dark themes", async () => {
+    const user = userEvent.setup();
+    render(<Tooltip.Provider><Toast.Provider><PiDaemonApp /><ToastViewport /></Toast.Provider></Tooltip.Provider>);
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
+
+    await user.click(screen.getByRole("button", { name: "Session actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Use dark theme" }));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dark"));
+    expect(window.localStorage.getItem("pi-daemon-theme")).toBe("dark");
+
+    await user.click(screen.getByRole("button", { name: "Session actions" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Use light theme" }));
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("light"));
+    expect(window.localStorage.getItem("pi-daemon-theme")).toBe("light");
   });
 
   it("shows task guidance instead of another first-session action for an empty active session", async () => {
@@ -205,6 +252,91 @@ describe("PiDaemonApp", () => {
 
     expect(await screen.findByRole("heading", { name: "What should Pi work on?" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Create your first session" })).toBeNull();
+  });
+
+  it("discovers, filters, and submits Pi slash commands from the composer", async () => {
+    const user = userEvent.setup();
+    render(<Tooltip.Provider><Toast.Provider><PiDaemonApp /><ToastViewport /></Toast.Provider></Tooltip.Provider>);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    await act(async () => {
+      socket?.onopen?.();
+      socket?.emit({
+        type: "session.snapshot",
+        protocolVersion: 1,
+        session: {
+          id: "command-session",
+          cwd: "/workspace/project",
+          thinking: "medium",
+          streaming: false,
+          messages: [],
+          availableModels: [],
+          slashCommands: [
+            { name: "deploy", description: "Deploy this project", source: "extension" },
+            { name: "fix-tests", description: "Repair failing tests", source: "prompt" },
+            { name: "skill:browser", description: "Control a browser", source: "skill" },
+          ],
+        },
+      });
+    });
+
+    const textarea = screen.getByRole("textbox", { name: "Message Pi" });
+    await user.type(textarea, "/");
+    const menu = await screen.findByRole("listbox", { name: "Slash commands" });
+    expect(within(menu).getAllByRole("option")).toHaveLength(3);
+    expect(within(menu).getByRole("option", { name: /\/deploy.*Deploy this project.*Extension/ })).toBeTruthy();
+
+    await user.type(textarea, "fix");
+    expect(within(menu).getAllByRole("option")).toHaveLength(1);
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect((textarea as HTMLTextAreaElement).value).toBe("/fix-tests ");
+    expect(screen.queryByRole("listbox", { name: "Slash commands" })).toBeNull();
+
+    await user.type(textarea, "now");
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(commands(socket)).toContainEqual(expect.objectContaining({
+      type: "session.prompt",
+      sessionId: "command-session",
+      text: "/fix-tests now",
+    }));
+  });
+
+  it("renders consecutive persisted tool calls as a compact expandable activity log", async () => {
+    const user = userEvent.setup();
+    render(<Tooltip.Provider><Toast.Provider><PiDaemonApp /><ToastViewport /></Toast.Provider></Tooltip.Provider>);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    await act(async () => {
+      socket?.onopen?.();
+      socket?.emit({
+        type: "session.snapshot",
+        protocolVersion: 1,
+        session: {
+          id: "tool-session",
+          cwd: "/workspace/project",
+          name: "Dense activity",
+          thinking: "medium",
+          streaming: false,
+          messages: [
+            { role: "assistant", content: [{ type: "thinking", thinking: "**Planning the read**" }, { type: "toolCall", id: "call-1", name: "read", arguments: { path: "/workspace/project/src/app.ts" } }] },
+            { role: "toolResult", toolCallId: "call-1", toolName: "read", content: [{ type: "text", text: "const ready = true;" }], isError: false },
+            { role: "assistant", content: [{ type: "toolCall", id: "call-2", name: "bash", arguments: { command: "npm test" } }] },
+            { role: "toolResult", toolCallId: "call-2", toolName: "bash", content: [{ type: "text", text: "12 tests passed" }], isError: false },
+            { role: "assistant", content: [{ type: "text", text: "Everything passes." }] },
+          ],
+          availableModels: [],
+        },
+      });
+    });
+
+    const group = await screen.findByRole("group", { name: "2 tool calls" });
+    expect(screen.getByText("Planning the read").closest('[data-streamdown="strong"]')).not.toBeNull();
+    const read = within(group).getByRole("button", { name: /Read.*app\.ts/ });
+    expect(within(group).getByRole("button", { name: /Ran.*npm test/ })).toBeTruthy();
+    expect(screen.getAllByText("Everything passes.")).toHaveLength(1);
+    expect(screen.queryByText("const ready = true;")).toBeNull();
+    await user.click(read);
+    expect(await screen.findByText("const ready = true;")).toBeTruthy();
   });
 
   it("prioritizes URL and service-worker session deep links, reconnects, and deduplicates outage toasts", async () => {

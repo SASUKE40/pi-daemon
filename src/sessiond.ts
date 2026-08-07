@@ -10,10 +10,12 @@ import {
   type AgentSessionEvent,
 } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
+import { marked, Renderer, type Tokens } from "marked";
 import { loadConfig } from "./config.js";
 import { log } from "./log.js";
 import { getAppPaths, safeSocketFallback } from "./paths.js";
 import { PushService, type PushNotification } from "./push.js";
+import { getSlashCommands } from "./slash-commands.js";
 import {
   event,
   parseClientCommand,
@@ -239,7 +241,6 @@ export class SessionDaemon {
       cwd: manager.getCwd(),
       agentDir: config.agentDir,
       settingsManager,
-      noExtensions: true,
     });
     await resourceLoader.reload();
     const { session } = await createAgentSession({
@@ -250,6 +251,14 @@ export class SessionDaemon {
       resourceLoader,
     });
     const runtime: RuntimeSession = { session, seq: 0, unsubscribe: () => undefined, notifications: new SessionNotificationTracker() };
+    await session.bindExtensions({
+      mode: "rpc",
+      onError: (error) => this.broadcast(event({
+        type: "error",
+        code: "extension_error",
+        message: `Extension ${error.event} failed: ${error.error}`,
+      })),
+    });
     runtime.unsubscribe = session.subscribe((agentEvent) => this.onAgentEvent(runtime, agentEvent));
     this.sessions.set(session.sessionId, runtime);
     return runtime;
@@ -321,6 +330,7 @@ function snapshot(runtime: RuntimeSession): SessionSnapshot {
       id: item.id,
       ...(item.name ? { name: item.name } : {}),
     })),
+    slashCommands: getSlashCommands(session),
   };
 }
 
@@ -371,8 +381,54 @@ export function assistantNotificationPreview(message: unknown): string | undefin
     const content = part as Record<string, unknown>;
     return content.type === "text" && typeof content.text === "string" ? [content.text] : [];
   }).join(" ");
-  const preview = notificationExcerpt(text, "");
+  const preview = notificationExcerpt(markdownNotificationText(text), "");
   return preview || undefined;
+}
+
+class NotificationTextRenderer extends Renderer {
+  override space(): string { return " "; }
+  override code({ text }: Tokens.Code): string { return `${text} `; }
+  override blockquote({ tokens }: Tokens.Blockquote): string { return `${this.parser.parse(tokens)} `; }
+  override html({ text }: Tokens.HTML | Tokens.Tag): string { return `${decodeHtmlEntities(text.replace(/<!--[\s\S]*?-->|<[^>]*>/gu, " "))} `; }
+  override def(): string { return ""; }
+  override heading({ tokens }: Tokens.Heading): string { return `${this.parser.parseInline(tokens)} `; }
+  override hr(): string { return " "; }
+  override list({ items }: Tokens.List): string { return `${items.map((item) => this.listitem(item)).join(" ")} `; }
+  override listitem({ tokens }: Tokens.ListItem): string { return `${this.parser.parse(tokens)} `; }
+  override checkbox({ checked }: Tokens.Checkbox): string { return checked ? "checked " : "unchecked "; }
+  override paragraph({ tokens }: Tokens.Paragraph): string { return `${this.parser.parseInline(tokens)} `; }
+  override table({ header, rows }: Tokens.Table): string {
+    return `${[header, ...rows].flatMap((row) => row.map((cell) => this.tablecell(cell))).join(" ")} `;
+  }
+  override tablerow({ text }: Tokens.TableRow): string { return `${text} `; }
+  override tablecell({ tokens }: Tokens.TableCell): string { return this.parser.parseInline(tokens); }
+  override strong({ tokens }: Tokens.Strong): string { return this.parser.parseInline(tokens); }
+  override em({ tokens }: Tokens.Em): string { return this.parser.parseInline(tokens); }
+  override codespan({ text }: Tokens.Codespan): string { return decodeHtmlEntities(text); }
+  override br(): string { return " "; }
+  override del({ tokens }: Tokens.Del): string { return this.parser.parseInline(tokens); }
+  override link({ tokens }: Tokens.Link): string { return this.parser.parseInline(tokens); }
+  override image({ text, tokens }: Tokens.Image): string {
+    return tokens ? this.parser.parseInline(tokens, this.parser.textRenderer) : decodeHtmlEntities(text);
+  }
+  override text(token: Tokens.Text | Tokens.Escape): string {
+    return "tokens" in token && token.tokens ? this.parser.parseInline(token.tokens) : decodeHtmlEntities(token.text);
+  }
+}
+
+const notificationTextRenderer = new NotificationTextRenderer();
+
+export function markdownNotificationText(value: string): string {
+  return marked.parse(value, { renderer: notificationTextRenderer, async: false });
+}
+
+function decodeHtmlEntities(value: string): string {
+  const named: Record<string, string> = { amp: "&", apos: "'", gt: ">", lt: "<", nbsp: " ", quot: "\"" };
+  return value.replace(/&(?:#(\d+)|#x([\da-f]+)|(amp|apos|gt|lt|nbsp|quot));/giu, (entity, decimal: string | undefined, hexadecimal: string | undefined, name: string | undefined) => {
+    const codePoint = decimal ? Number.parseInt(decimal, 10) : hexadecimal ? Number.parseInt(hexadecimal, 16) : undefined;
+    if (codePoint !== undefined && codePoint <= 0x10ffff && (codePoint < 0xd800 || codePoint > 0xdfff)) return String.fromCodePoint(codePoint);
+    return named[name?.toLocaleLowerCase() || ""] || entity;
+  });
 }
 
 export class SessionNotificationTracker {
