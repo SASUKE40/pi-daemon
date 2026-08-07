@@ -519,14 +519,42 @@ function SessionSidebar(props: {
   onCreate(): void;
   onOpen(sessionId: string): void;
 }): ReactNode {
+  const [searchExpanded, setSearchExpanded] = useState(false);
+  const searchOpen = searchExpanded || Boolean(props.filter);
+  const closeSearch = () => {
+    props.onFilter("");
+    setSearchExpanded(false);
+  };
+
   return (
     <div className="sidebarContent">
       <div className="brandRow">
         <PiMark className="brandMark" />
         <div><strong>PI Remote</strong><span><i className={props.connected ? "connected" : ""} />{props.connected ? "Online" : "Reconnecting"}</span></div>
       </div>
-      <Button className="newSessionButton" onClick={props.onCreate}><span aria-hidden="true">＋</span> New session</Button>
-      <div className="sessionSearch"><Input aria-label="Filter sessions" placeholder="Filter sessions…" value={props.filter} onChange={(event) => props.onFilter(event.target.value)} /></div>
+      <div className="sidebarActions">
+        {searchOpen ? (
+          <div className="sessionSearch">
+            <span className="sessionSearchIcon" aria-hidden="true"><SearchIcon /></span>
+            <Input
+              autoFocus
+              aria-label="Filter sessions"
+              placeholder="Filter sessions…"
+              value={props.filter}
+              onChange={(event) => props.onFilter(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") closeSearch();
+              }}
+            />
+            <Button className="sessionSearchClose" aria-label="Close session search" onClick={closeSearch}><span aria-hidden="true">×</span></Button>
+          </div>
+        ) : (
+          <>
+            <Button className="newSessionButton" onClick={props.onCreate}><span aria-hidden="true">＋</span> New session</Button>
+            <TipButton className="sessionSearchButton" label="Search sessions" onClick={() => setSearchExpanded(true)}><SearchIcon /></TipButton>
+          </>
+        )}
+      </div>
       <div className="sessionList">
         <p className="sectionLabel">Recent work <span>{props.sessions.length}</span></p>
         {props.sessions.map((session) => (
@@ -756,6 +784,10 @@ function ControlSelect(props: { label: string; icon?: ReactNode; value: string; 
 
 function ChevronIcon(): ReactNode {
   return <svg aria-hidden="true" focusable="false" viewBox="0 0 12 12"><path d="m3 4.5 3 3 3-3" /></svg>;
+}
+
+function SearchIcon(): ReactNode {
+  return <svg className="searchIcon" aria-hidden="true" focusable="false" viewBox="0 0 20 20"><circle cx="8.7" cy="8.7" r="5.2" /><path d="m12.6 12.6 4 4" /></svg>;
 }
 
 type ModelProviderKind = "openai" | "anthropic" | "google" | "xai" | "mistral" | "generic";

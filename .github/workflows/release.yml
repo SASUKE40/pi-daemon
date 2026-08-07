@@ -47,17 +47,17 @@ jobs:
           mv cloudflared-* artifacts/
       - name: Download and verify managed Node.js assets
         run: |
-          curl -fsSLO https://nodejs.org/dist/v22.19.0/SHASUMS256.txt
-          for asset in node-v22.19.0-darwin-arm64.tar.gz node-v22.19.0-darwin-x64.tar.gz node-v22.19.0-linux-arm64.tar.gz node-v22.19.0-linux-x64.tar.gz; do
-            curl -fsSLO "https://nodejs.org/dist/v22.19.0/$asset"
+          curl -fsSLO https://nodejs.org/dist/v24.19.0/SHASUMS256.txt
+          for asset in node-v24.19.0-darwin-arm64.tar.gz node-v24.19.0-darwin-x64.tar.gz node-v24.19.0-linux-arm64.tar.gz node-v24.19.0-linux-x64.tar.gz; do
+            curl -fsSLO "https://nodejs.org/dist/v24.19.0/$asset"
             grep "  $asset\$" SHASUMS256.txt | sha256sum -c -
           done
-          mv node-v22.19.0-* artifacts/
+          mv node-v24.19.0-* artifacts/
       - name: Assemble checksummed release payload
         run: |
           cp installer/install.sh artifacts/install.sh
           cp compatibility.json artifacts/compatibility.json
-          (cd artifacts && sha256sum edward40-pi-daemon-* cloudflared-* node-v22.19.0-* compatibility.json install.sh > SHA256SUMS)
+          (cd artifacts && sha256sum edward40-pi-daemon-* cloudflared-* node-v24.19.0-* compatibility.json install.sh > SHA256SUMS)
       - uses: softprops/action-gh-release@v2
         with:
           files: artifacts/*

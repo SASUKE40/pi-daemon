@@ -214,13 +214,22 @@ button:disabled { cursor: default; }
   font-weight: 750;
 }
 
+.sidebarActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  margin: 8px 10px 6px;
+}
+
 .newSessionButton {
   display: flex;
+  min-width: 0;
+  flex: 1;
   align-items: center;
   justify-content: flex-start;
   gap: 7px;
   min-height: 38px;
-  margin: 8px 10px 6px;
   padding: 0 10px;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -233,7 +242,8 @@ button:disabled { cursor: default; }
 .newSessionButton:hover { border-color: var(--line); color: var(--ink); background: var(--panel); }
 .newSessionButton span { color: var(--ink-faint); font-size: 15px; font-weight: 500; line-height: 1; }
 
-.sessionSearch { padding: 0 10px 8px; }
+.sessionSearch { position: relative; display: flex; width: 100%; min-width: 0; align-items: center; animation: searchIn .16s ease-out; }
+@keyframes searchIn { from { opacity: 0; transform: scaleX(.96); transform-origin: right; } }
 .sessionSearch input, .textInput {
   width: 100%;
   min-height: 38px;
@@ -241,10 +251,30 @@ button:disabled { cursor: default; }
   border-radius: 9px;
   outline: 0;
   background: var(--surface);
-  padding: 0 12px;
+  padding: 0 40px 0 35px;
 }
+.textInput { padding: 0 12px; }
 .sessionSearch input::placeholder, .textInput::placeholder, textarea::placeholder { color: var(--placeholder); }
 .sessionSearch input:focus, .textInput:focus { border-color: var(--focus-border); box-shadow: 0 0 0 3px var(--focus-ring); }
+.sessionSearchButton, .sessionSearchClose {
+  display: grid;
+  flex: 0 0 38px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink-faint);
+  background: transparent;
+}
+.sessionSearchButton:hover { border-color: var(--line); color: var(--ink); background: var(--panel); }
+.sessionSearchIcon { position: absolute; z-index: 1; left: 11px; display: grid; width: 16px; height: 16px; place-items: center; color: var(--ink-faint); pointer-events: none; }
+.sessionSearchClose { position: absolute; z-index: 1; right: 2px; border: 0; font-size: 17px; font-weight: 400; line-height: 1; }
+.sessionSearchClose span { display: grid; width: 26px; height: 26px; place-items: center; transition: color .15s; }
+.sessionSearchClose:hover { background: transparent; }
+.sessionSearchClose:hover span { color: var(--ink); background: transparent; }
+.searchIcon { display: block; width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
 
 .sessionList { min-height: 0; overflow: auto; padding: 0 6px 24px; scrollbar-color: var(--line-bright) transparent; }
 .sectionLabel { display: flex; justify-content: space-between; padding: 8px 10px 6px; margin: 0; color: var(--ink-faint); font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }

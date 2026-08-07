@@ -320,17 +320,17 @@ async function uninstall(deleteCloudflare: boolean): Promise<void> {
 
 async function selectRelay(prompt: TerminalPrompter, current: PiDaemonConfig, memo?: SetupMemo): Promise<RelayKind> {
   const tailscale = await findTailscale();
-  const preferred = activeRelay(current) || memo?.relay || (tailscale ? "tailscale" : "cloudflare");
+  const preferred = activeRelay(current) || memo?.relay || "cloudflare";
   prompt.print("\nRemote access");
-  prompt.print(`1. Tailscale Serve — private to your tailnet, no API token${tailscale ? "" : " (Tailscale not found)"}`);
-  prompt.print("2. Cloudflare Tunnel — public hostname protected by Cloudflare Access");
+  prompt.print("1. Cloudflare Tunnel — public hostname protected by Cloudflare Access");
+  prompt.print(`2. Tailscale Serve — private to your tailnet, no API token${tailscale ? "" : " (Tailscale not found)"}`);
   while (true) {
-    const selected = await prompt.question("Relay number", preferred === "tailscale" ? "1" : "2");
-    if (selected === "1") {
+    const selected = await prompt.question("Relay number", preferred === "cloudflare" ? "1" : "2");
+    if (selected === "1") return "cloudflare";
+    if (selected === "2") {
       if (!tailscale) throw new Error("Install and sign in to Tailscale first: https://tailscale.com/download");
       return "tailscale";
     }
-    if (selected === "2") return "cloudflare";
     prompt.print("Enter 1 or 2.");
   }
 }

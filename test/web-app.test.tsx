@@ -229,6 +229,41 @@ describe("PiDaemonApp", () => {
     expect(window.localStorage.getItem("pi-daemon-theme")).toBe("light");
   });
 
+  it("expands the compact session search and closes it with Escape", async () => {
+    const user = userEvent.setup();
+    render(<Tooltip.Provider><Toast.Provider><PiDaemonApp /><ToastViewport /></Toast.Provider></Tooltip.Provider>);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+    await act(async () => {
+      socket?.onopen?.();
+      socket?.emit({
+        type: "session.list",
+        protocolVersion: 1,
+        requestId: "list",
+        sessions: [
+          { id: "first", path: "/sessions/first", cwd: "/workspace/first", name: "First task", created: "2026-08-06T12:00:00.000Z", modified: "2026-08-06T12:00:00.000Z", messageCount: 1 },
+          { id: "second", path: "/sessions/second", cwd: "/workspace/second", name: "Second task", created: "2026-08-07T12:00:00.000Z", modified: "2026-08-07T12:00:00.000Z", messageCount: 1 },
+        ],
+      });
+    });
+
+    expect(screen.queryByRole("textbox", { name: "Filter sessions" })).toBeNull();
+    expect(screen.getByRole("button", { name: "New session" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Search sessions" }));
+
+    const search = screen.getByRole("textbox", { name: "Filter sessions" });
+    expect(document.activeElement).toBe(search);
+    expect(screen.queryByRole("button", { name: "New session" })).toBeNull();
+    await user.type(search, "second");
+    expect(screen.queryByText("First task")).toBeNull();
+    expect(screen.getByText("Second task")).toBeTruthy();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("textbox", { name: "Filter sessions" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Search sessions" })).toBeTruthy();
+    expect(screen.getByText("First task")).toBeTruthy();
+  });
+
   it("shows task guidance instead of another first-session action for an empty active session", async () => {
     render(<Tooltip.Provider><Toast.Provider><PiDaemonApp /><ToastViewport /></Toast.Provider></Tooltip.Provider>);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));

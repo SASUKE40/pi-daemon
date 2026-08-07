@@ -14,14 +14,14 @@ curl -fsSL https://github.com/SASUKE40/pi-daemon/releases/latest/download/instal
 
 Prerequisites:
 
-- `curl` and `tar` (the installer provides its own Node.js 22.19.0/npm runtime without root)
+- `curl` and `tar` (the installer provides its own Node.js 24.19.0 LTS/npm runtime without root)
 - macOS 13+ on arm64/x64, or glibc Linux arm64/x64
 - For the simplest private setup: Tailscale installed and signed in on the host and mobile device
 - Or, for a public hostname: a Cloudflare account with a managed DNS zone
 
-The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `22.19.0`, Pi `0.84.1`, and cloudflared `2026.7.3`. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root.
+The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `24.19.0` LTS, Pi `0.84.1`, and cloudflared `2026.7.3`. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root.
 
-The setup wizard offers two relay choices. Tailscale Serve is the default when the `tailscale` command is available and needs no API token. Cloudflare setup opens a browser consent link and displays a QR code, so a headless board can be authorized from another device without creating or pasting an API token. The CLI uses Authorization Code with PKCE, provisions the resources locally, and revokes the temporary access token when setup finishes. Saved reinstall choices contain resource IDs and user selections, not the OAuth authorization. The tunnel connector token is saved separately in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
+The setup wizard offers two relay choices, with Cloudflare Tunnel first and selected by default for a new setup. Tailscale Serve remains available for private tailnet access and needs no API token. Cloudflare setup opens a browser consent link and displays a QR code, so a headless board can be authorized from another device without creating or pasting an API token. The CLI uses Authorization Code with PKCE, provisions the resources locally, and revokes the temporary access token when setup finishes. Saved reinstall choices contain resource IDs and user selections, not the OAuth authorization. The tunnel connector token is saved separately in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
 
 ## Architecture
 

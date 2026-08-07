@@ -55,9 +55,17 @@ describe("Cloudflare OAuth", () => {
     expect(requests.filter((item) => item.url.endsWith("/oauth2/revoke"))).toHaveLength(1);
   });
 
-  it("loads an all-or-nothing HTTPS configuration", () => {
-    expect(cloudflareOAuthConfig({})).toBeUndefined();
-    expect(() => cloudflareOAuthConfig({ PI_DAEMON_CLOUDFLARE_OAUTH_CLIENT_ID: "client" })).toThrow("requires client ID");
+  it("loads release defaults with optional HTTPS overrides", () => {
+    expect(cloudflareOAuthConfig({})).toEqual({
+      clientId: "eb36f8ba635473b58f875d14bd8656ac",
+      relayUrl: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev",
+      redirectUri: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev/callback",
+    });
+    expect(cloudflareOAuthConfig({ PI_DAEMON_CLOUDFLARE_OAUTH_CLIENT_ID: "client" })).toEqual({
+      clientId: "client",
+      relayUrl: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev",
+      redirectUri: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev/callback",
+    });
     expect(() => cloudflareOAuthConfig({
       PI_DAEMON_CLOUDFLARE_OAUTH_CLIENT_ID: "client",
       PI_DAEMON_CLOUDFLARE_OAUTH_RELAY_URL: "http://relay.example",

@@ -4,7 +4,7 @@
  * Environment variables with the same fields override these release defaults.
  */
 export const CLOUDFLARE_OAUTH_DEFAULTS = {
-  clientId: "",
-  relayUrl: "",
-  redirectUri: "",
+  clientId: "eb36f8ba635473b58f875d14bd8656ac",
+  relayUrl: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev",
+  redirectUri: "https://pi-daemon-oauth-relay.sasuke688848.workers.dev/callback",
 } as const;
