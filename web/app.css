@@ -206,7 +206,7 @@ button:disabled { cursor: default; }
   font-weight: 800;
 }
 .iconButton:hover, .iconButton[data-popup-open], .iconButton.active { border-color: var(--line-bright); color: var(--ink); background: var(--panel-raised); }
-.notificationButton { font-size: 21px; }
+.installButton svg { width: 21px; height: 21px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .runPill { min-width: 58px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--ink-faint); background: #15191a; font-size: 10px; font-weight: 800; letter-spacing: .06em; text-align: center; text-transform: uppercase; }
 .runPill.running, .runPill.aborting { border-color: #f4a84f33; color: var(--amber-bright); background: var(--amber-soft); }
 .runPill.error { border-color: #ff8f8f33; color: var(--red); background: #ff8f8f12; }
@@ -328,6 +328,20 @@ button:disabled { cursor: default; }
 .secondaryButton:hover { color: var(--ink); background: var(--panel-raised); }
 .fullWidth { width: 100%; }
 
+.installGuidance { display: grid; gap: 14px; }
+.installState { display: flex; gap: 13px; padding: 15px; border: 1px solid #f4a84f3d; border-radius: 14px; background: var(--amber-soft); }
+.installState > span { display: grid; flex: 0 0 35px; width: 35px; height: 35px; place-items: center; border-radius: 11px; color: #211609; background: var(--amber); font-size: 20px; font-weight: 900; }
+.installState.installed { border-color: #73d69a3d; background: #73d69a12; }
+.installState.installed > span { color: #092114; background: var(--green); }
+.installState strong { font-size: 13px; }
+.installState p { margin: 5px 0 0; color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.installSteps { display: grid; gap: 9px; margin: 0; padding: 0 0 0 32px; color: var(--ink-soft); font-size: 12px; line-height: 1.5; }
+.installSteps li::marker { color: var(--amber); font-weight: 800; }
+.installSteps strong { color: var(--ink); }
+.dialogSection { display: grid; gap: 12px; margin-top: 23px; padding-top: 21px; border-top: 1px solid var(--line); }
+.dialogSection > h3 { margin: 0; font-size: 14px; }
+.dialogSection > p { margin: -6px 0 0; color: var(--ink-faint); font-size: 11px; line-height: 1.5; }
+
 .notificationSettings { display: grid; gap: 14px; }
 .notificationState { display: flex; gap: 13px; padding: 15px; border: 1px solid var(--line); border-radius: 14px; background: #0e1112; }
 .notificationState > span { display: grid; flex: 0 0 35px; width: 35px; height: 35px; place-items: center; border-radius: 11px; color: var(--amber); background: var(--amber-soft); font-weight: 900; }
@@ -391,7 +405,7 @@ button:disabled { cursor: default; }
 
 @media (max-width: 480px) {
   .headerActions { gap: 5px; }
-  .headerActions > .iconButton:not(.notificationButton) { display: none; }
+  .headerActions > .iconButton:not(.installButton) { display: none; }
   .iconButton { min-width: 44px; width: 44px; height: 44px; }
   .sessionHeading p { max-width: 44vw; }
   .composerControls { padding-top: 7px; }

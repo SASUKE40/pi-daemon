@@ -78,7 +78,7 @@ The wizard creates or validates one remotely managed tunnel, one proxied CNAME, 
 
 ## Completion notifications
 
-Pi Daemon can send an opt-in Web Push notification when a session completes or fails, even when the PWA is closed. Open **Completion notifications** from the session header and enable alerts separately on each device. Disabling alerts removes only that device's subscription.
+Pi Daemon can send an opt-in Web Push notification when a session completes or fails, even when the PWA is closed. Open **Add to Home Screen** from the session header for browser-specific installation steps and notification settings, then enable alerts separately on each device. Disabling alerts removes only that device's subscription.
 
 On iPhone and iPad, first add Pi Daemon to the Home Screen, open the installed app, and then enable notifications from the in-app control, as required by [WebKit's Web Push support](https://webkit.org/blog/13878/web-push-for-web-apps-on-ios-and-ipados/). Android and desktop browsers can enable notifications directly when their Push API support is available. The Pi Daemon host needs outbound HTTPS access to the browser vendor's push service; no additional inbound port or Cloudflare resource is required.
 

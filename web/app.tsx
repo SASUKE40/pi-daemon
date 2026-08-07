@@ -24,6 +24,11 @@ interface Bootstrap {
   pushPublicKey?: string;
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
 interface UploadedAttachment {
   id: string;
   name: string;
@@ -97,7 +102,9 @@ export function PiDaemonApp(): ReactNode {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
-  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [installOpen, setInstallOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+  const [installed, setInstalled] = useState(() => isStandalone());
   const [newSessionCwd, setNewSessionCwd] = useState("");
   const [newSessionName, setNewSessionName] = useState("");
   const [renameValue, setRenameValue] = useState("");
@@ -122,6 +129,23 @@ export function PiDaemonApp(): ReactNode {
     if (socketRef.current?.readyState !== WebSocket.OPEN) return;
     const envelope = { protocolVersion: 1, requestId: crypto.randomUUID(), ...command } as ClientCommand;
     socketRef.current.send(JSON.stringify(envelope));
+  }, []);
+
+  useEffect(() => {
+    const captureInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    const markInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", captureInstallPrompt);
+    window.addEventListener("appinstalled", markInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", captureInstallPrompt);
+      window.removeEventListener("appinstalled", markInstalled);
+    };
   }, []);
 
   useEffect(() => {
@@ -320,7 +344,9 @@ export function PiDaemonApp(): ReactNode {
             <p>{state.current?.cwd || bootstrap?.defaultCwd || "Starting…"}</p>
           </div>
           <div className="headerActions">
-            <TipButton className={`iconButton notificationButton ${notificationOpen ? "active" : ""}`} label="Notification settings" onClick={() => setNotificationOpen(true)}>◎</TipButton>
+            <TipButton className={`iconButton installButton ${installOpen ? "active" : ""}`} label="Add to Home Screen" onClick={() => setInstallOpen(true)}>
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 15v5h14v-5" /></svg>
+            </TipButton>
             {state.current && (
               <Menu.Root>
                 <Menu.Trigger className="iconButton" aria-label="Session actions">•••</Menu.Trigger>
@@ -400,8 +426,19 @@ export function PiDaemonApp(): ReactNode {
         </form>
       </AppDialog>
 
-      <AppDialog open={notificationOpen} onOpenChange={setNotificationOpen} title="Completion notifications" description="Get an alert when Pi finishes, even after this app is closed.">
-        {bootstrap ? <NotificationSettings publicKey={bootstrap.pushPublicKey} showError={showError} /> : <p className="mutedCopy">Preparing notification settings…</p>}
+      <AppDialog open={installOpen} onOpenChange={setInstallOpen} title="Add Pi to your Home Screen" description="Install Pi for quick access and a full-screen app experience.">
+        <InstallGuidance
+          installed={installed}
+          promptEvent={installPrompt}
+          onPromptUsed={() => setInstallPrompt(null)}
+          onInstalled={() => setInstalled(true)}
+          showError={showError}
+        />
+        <div className="dialogSection">
+          <h3>Completion notifications</h3>
+          <p>Get an alert when Pi finishes, even after the app is closed.</p>
+          {bootstrap ? <NotificationSettings publicKey={bootstrap.pushPublicKey} showError={showError} /> : <p className="mutedCopy">Preparing notification settings…</p>}
+        </div>
       </AppDialog>
     </div>
   );
@@ -619,6 +656,49 @@ function AppDialog(props: { open: boolean; onOpenChange(open: boolean): void; ti
   );
 }
 
+export function InstallGuidance({ installed, promptEvent, onPromptUsed, onInstalled, showError }: {
+  installed: boolean;
+  promptEvent: BeforeInstallPromptEvent | null;
+  onPromptUsed(): void;
+  onInstalled(): void;
+  showError(message: string): void;
+}): ReactNode {
+  const [busy, setBusy] = useState(false);
+  const ios = isIosDevice();
+
+  const install = async () => {
+    if (!promptEvent) return;
+    setBusy(true);
+    try {
+      await promptEvent.prompt();
+      const choice = await promptEvent.userChoice;
+      onPromptUsed();
+      if (choice.outcome === "accepted") onInstalled();
+    } catch (error) {
+      showError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (installed) {
+    return <div className="installState installed"><span>✓</span><div><strong>Pi is on your Home Screen</strong><p>Open it from your device like any other app.</p></div></div>;
+  }
+
+  return (
+    <div className="installGuidance">
+      <div className="installState"><span>＋</span><div><strong>{promptEvent ? "Install Pi on this device" : "Keep Pi one tap away"}</strong><p>{promptEvent ? "Your browser can add Pi as an app now." : ios ? "Use your browser’s Share menu to add Pi to your Home Screen." : "Use your browser’s menu to install Pi or add it to your Home Screen."}</p></div></div>
+      {promptEvent ? (
+        <Button className="primaryButton fullWidth" disabled={busy} onClick={() => void install()}>{busy ? "Opening install prompt…" : "Install Pi"}</Button>
+      ) : (
+        <ol className="installSteps">
+          {ios ? <><li>Tap the <strong>Share</strong> button in your browser.</li><li>Choose <strong>Add to Home Screen</strong>.</li><li>Tap <strong>Add</strong> to confirm.</li></> : <><li>Open your browser’s menu.</li><li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li><li>Follow the confirmation prompt.</li></>}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 type PushUiState = "checking" | "unsupported" | "unavailable" | "install-required" | "denied" | "disabled" | "enabled";
 
 export function NotificationSettings({ publicKey, showError }: { publicKey: string | undefined; showError(message: string): void }): ReactNode {
@@ -635,12 +715,12 @@ export function NotificationSettings({ publicKey, showError }: { publicKey: stri
       setStatus("unavailable");
       return;
     }
-    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
-      setStatus("unsupported");
-      return;
-    }
     if (isIosDevice() && !isStandalone()) {
       setStatus("install-required");
+      return;
+    }
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setStatus("unsupported");
       return;
     }
     if (Notification.permission === "denied") {

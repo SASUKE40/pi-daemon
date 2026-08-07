@@ -4,7 +4,7 @@ import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { NotificationSettings, PiDaemonApp, ToastViewport } from "../web/app.js";
+import { InstallGuidance, NotificationSettings, PiDaemonApp, ToastViewport } from "../web/app.js";
 
 class FakeWebSocket {
   static readonly OPEN = 1;
@@ -157,7 +157,7 @@ describe("PiDaemonApp", () => {
     }));
   });
 
-  it("uses Base UI dialogs for new sessions and unsupported notification guidance", async () => {
+  it("uses Base UI dialogs for new sessions and Home Screen guidance", async () => {
     const user = userEvent.setup();
     render(<Tooltip.Provider><Toast.Provider><PiDaemonApp /><ToastViewport /></Toast.Provider></Tooltip.Provider>);
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
@@ -175,7 +175,9 @@ describe("PiDaemonApp", () => {
     await user.click(within(dialog).getByRole("button", { name: "Create session" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.create", cwd: "/tmp/project", name: "New work" }));
 
-    await user.click(screen.getByRole("button", { name: "Notification settings" }));
+    await user.click(screen.getByRole("button", { name: "Add to Home Screen" }));
+    expect(await screen.findByRole("dialog", { name: "Add Pi to your Home Screen" })).toBeTruthy();
+    expect(screen.getByText(/Open your browser’s menu/)).toBeTruthy();
     expect(await screen.findByText("Not supported here")).toBeTruthy();
     expect(screen.getByText(/Service Worker and Push APIs/)).toBeTruthy();
   });
@@ -233,6 +235,28 @@ describe("PiDaemonApp", () => {
 
     await act(async () => socket?.onclose?.());
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2), { timeout: 1_500 });
+  });
+});
+
+describe("InstallGuidance", () => {
+  it("opens the browser install prompt and confirms an accepted install", async () => {
+    const prompt = vi.fn(async () => undefined);
+    const onPromptUsed = vi.fn();
+    const onInstalled = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <InstallGuidance
+        installed={false}
+        promptEvent={{ prompt, userChoice: Promise.resolve({ outcome: "accepted", platform: "web" }) } as unknown as Parameters<typeof InstallGuidance>[0]["promptEvent"]}
+        onPromptUsed={onPromptUsed}
+        onInstalled={onInstalled}
+        showError={vi.fn()}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Install Pi" }));
+    await waitFor(() => expect(onInstalled).toHaveBeenCalledTimes(1));
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(onPromptUsed).toHaveBeenCalledTimes(1);
   });
 });
 
