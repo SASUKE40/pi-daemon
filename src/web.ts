@@ -105,7 +105,7 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
       } catch {
         return reply.code(413).send({ error: "Image exceeds 10 MB" });
       }
-      if (buffer.length > MAX_ATTACHMENT_BYTES) return reply.code(413).send({ error: "Image exceeds 10 MB" });
+      if (part.file.truncated || buffer.length > MAX_ATTACHMENT_BYTES) return reply.code(413).send({ error: "Image exceeds 10 MB" });
       if (!matchesImageSignature(buffer, mimeType)) return reply.code(415).send({ error: "Uploaded file does not match its image type" });
       const id = randomUUID();
       attachments.set(id, {
