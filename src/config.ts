@@ -45,7 +45,7 @@ export function validateConfig(value: unknown): PiDaemonConfig {
   return value as PiDaemonConfig;
 }
 
-function validateCloudflareConfig(value: unknown): asserts value is CloudflareConfig {
+export function validateCloudflareConfig(value: unknown): asserts value is CloudflareConfig {
   if (!value || typeof value !== "object") throw new Error("Invalid Cloudflare configuration");
   const item = value as Record<string, unknown>;
   for (const key of ["accountId", "zoneId", "tunnelId", "accessAppId", "audience", "teamDomain", "hostname", "allowedEmail"]) {

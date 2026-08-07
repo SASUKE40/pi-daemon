@@ -34,12 +34,20 @@ export interface ProvisionInput {
   tunnelName: string;
   localPort: number;
   previous?: CloudflareConfig;
+  adoptExisting?: boolean;
 }
 
 export interface ProvisionResult {
   config: CloudflareConfig;
   tunnelToken: string;
   created: string[];
+}
+
+export class TunnelNameConflictError extends Error {
+  constructor(readonly tunnelName: string) {
+    super(`Tunnel name conflict: ${tunnelName}`);
+    this.name = "TunnelNameConflictError";
+  }
 }
 
 export class CloudflareClient {
@@ -135,8 +143,8 @@ export class CloudflareClient {
     const tunnels = await this.request<Tunnel[]>(`/accounts/${input.accountId}/cfd_tunnel?is_deleted=false&name=${encodeURIComponent(input.tunnelName)}`);
     const existing = tunnels.find((tunnel) => tunnel.name === input.tunnelName && !tunnel.deleted_at);
     if (existing) {
-      if (!input.previous || input.previous.tunnelId !== existing.id) throw new Error(`Tunnel name conflict: ${input.tunnelName}`);
       if (existing.config_src && existing.config_src !== "cloudflare") throw new Error(`Tunnel ${input.tunnelName} is not remotely managed`);
+      if ((!input.previous || input.previous.tunnelId !== existing.id) && !input.adoptExisting) throw new TunnelNameConflictError(input.tunnelName);
       return existing;
     }
     const tunnel = await this.request<Tunnel>(`/accounts/${input.accountId}/cfd_tunnel`, {
@@ -167,7 +175,7 @@ export class CloudflareClient {
     const apps = await this.request<AccessApplication[]>(`/accounts/${input.accountId}/access/apps?per_page=100`);
     const existing = apps.find((app) => app.domain.toLowerCase() === input.hostname.toLowerCase());
     if (existing) {
-      if (!input.previous || input.previous.accessAppId !== existing.id || existing.type !== "self_hosted") throw new Error(`Access application conflict: ${input.hostname}`);
+      if (existing.type !== "self_hosted" || ((!input.previous || input.previous.accessAppId !== existing.id) && !input.adoptExisting)) throw new Error(`Access application conflict: ${input.hostname}`);
       await this.validatePolicy(input, existing, idpId);
       return existing;
     }

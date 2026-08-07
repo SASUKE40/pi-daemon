@@ -6,7 +6,16 @@ import { promisify } from "node:util";
 import { join } from "node:path";
 import { homedir, hostname } from "node:os";
 import qrcode from "qrcode-terminal";
-import { CloudflareClient, validateEmail, validateHostname, type CloudflareAccount, type CloudflareZone } from "./cloudflare.js";
+import {
+  CloudflareClient,
+  TunnelNameConflictError,
+  validateEmail,
+  validateHostname,
+  type CloudflareAccount,
+  type CloudflareZone,
+  type ProvisionInput,
+  type ProvisionResult,
+} from "./cloudflare.js";
 import { defaultConfig, loadConfig, saveConfig, type PiDaemonConfig } from "./config.js";
 import { getAppPaths } from "./paths.js";
 import { loadSetupMemo, removeRuntimeConfigPreservingSetupMemo, saveSetupMemo, type SetupMemo } from "./setup-memo.js";
@@ -70,7 +79,8 @@ async function setup(fromInstaller = false): Promise<void> {
     const teamName = `pi-${account.id.slice(0, 8)}`;
     const tunnelName = `pi-daemon-${sanitizeName(hostname())}`;
     prompt.print(`Provisioning protected hostname https://${publicHostname} …`);
-    const provisioned = await cloudflare.provision({
+    const previous = [current.cloudflare, memo?.cloudflare].find((item) => item?.accountId === account.id && item.zoneId === zone.id);
+    const provisionInput: ProvisionInput = {
       accountId: account.id,
       zoneId: zone.id,
       hostname: publicHostname,
@@ -78,8 +88,17 @@ async function setup(fromInstaller = false): Promise<void> {
       teamName,
       tunnelName,
       localPort: current.port,
-      ...(current.cloudflare ? { previous: current.cloudflare } : {}),
-    });
+      ...(previous ? { previous } : {}),
+    };
+    let provisioned: ProvisionResult;
+    try {
+      provisioned = await cloudflare.provision(provisionInput);
+    } catch (error) {
+      if (!(error instanceof TunnelNameConflictError)) throw error;
+      prompt.print(`An existing remotely managed Cloudflare tunnel is named ${error.tunnelName}. This can be left behind by an interrupted setup or an uninstall that kept Cloudflare resources.`);
+      if (!await prompt.confirm("Reuse it? Pi Daemon will require matching DNS and an exact-email Access policy.", false)) throw error;
+      provisioned = await cloudflare.provision({ ...provisionInput, adoptExisting: true });
+    }
 
     await mkdir(paths.configDir, { recursive: true, mode: 0o700 });
     await writeFile(paths.tunnelTokenFile, `${provisioned.tunnelToken}\n`, { mode: 0o600 });
@@ -95,6 +114,7 @@ async function setup(fromInstaller = false): Promise<void> {
         accountId: account.id,
         zoneId: zone.id,
         cloudflareApiToken: apiToken,
+        cloudflare: provisioned.config,
       });
     } else {
       await rm(paths.setupMemoFile, { force: true });

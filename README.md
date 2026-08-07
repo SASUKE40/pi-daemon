@@ -74,7 +74,7 @@ Set the token's resource scopes explicitly:
 
 This scoped API token is required because `cloudflared`'s browser login cannot configure the Access application and exact-email policy. The setup wizard asks before saving it to the reinstall memo, with Yes as the default. The memo is plaintext JSON protected by owner-only file permissions, so answer No on an untrusted or shared user account; revoke the token if the host is compromised.
 
-The wizard creates or validates one remotely managed tunnel, one proxied CNAME, one self-hosted Access application, and an Allow policy containing the exact email plus a required One-time PIN login method. It refuses to overwrite conflicting DNS or Access resources.
+The wizard creates or validates one remotely managed tunnel, one proxied CNAME, one self-hosted Access application, and an Allow policy containing the exact email plus a required One-time PIN login method. Reinstall metadata retains the managed resource IDs. If an older uninstall or interrupted setup left a same-named remote tunnel without those IDs, setup can reuse it only after an explicit default-No confirmation and still refuses conflicting DNS or Access resources.
 
 ## Completion notifications
 

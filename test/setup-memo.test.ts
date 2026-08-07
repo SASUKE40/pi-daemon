@@ -13,6 +13,16 @@ const memo: SetupMemo = {
   accountId: "account-id",
   zoneId: "zone-id",
   cloudflareApiToken: "api-token-secret",
+  cloudflare: {
+    accountId: "account-id",
+    zoneId: "zone-id",
+    tunnelId: "tunnel-id",
+    accessAppId: "app-id",
+    audience: "aud-id",
+    teamDomain: "pi-team.cloudflareaccess.com",
+    hostname: "pi.example.com",
+    allowedEmail: "only@example.com",
+  },
 };
 
 describe("setup memo", () => {
@@ -46,6 +56,15 @@ describe("setup memo", () => {
 
   it("returns no memo before a user opts in", async () => {
     await expect(loadSetupMemo()).resolves.toBeUndefined();
+  });
+
+  it("accepts older memos without managed Cloudflare resource ids", async () => {
+    const { cloudflare: _cloudflare, ...olderMemo } = memo;
+    const { configDir, setupMemoFile } = getAppPaths();
+    await mkdir(configDir, { recursive: true });
+    await writeFile(setupMemoFile, JSON.stringify(olderMemo), { mode: 0o600 });
+
+    await expect(loadSetupMemo()).resolves.toEqual(olderMemo);
   });
 
   it("preserves only the opted-in memo during uninstall cleanup", async () => {

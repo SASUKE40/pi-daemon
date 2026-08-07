@@ -90,6 +90,48 @@ describe("Cloudflare provisioning", () => {
     })).rejects.toThrow("Tunnel name conflict");
   });
 
+  it("reuses a confirmed remote tunnel while still creating and validating its protected route", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const fetcher: typeof fetch = async (input, init) => {
+      const url = String(input);
+      requests.push({ url, ...(init ? { init } : {}) });
+      if (url.endsWith("/access/organizations")) return response({ auth_domain: "pi-team.cloudflareaccess.com" });
+      if (url.endsWith("/access/identity_providers")) return response([{ id: "otp-id", name: "OTP", type: "onetimepin" }]);
+      if (url.includes("/cfd_tunnel?")) return response([{ id: "tunnel-id", name: "pi-daemon-test", config_src: "cloudflare" }]);
+      if (url.includes("/dns_records?") && !init?.method) return response([]);
+      if (url.endsWith("/dns_records") && init?.method === "POST") return response({ id: "dns-id", type: "CNAME", name: "pi.example.com", content: "tunnel-id.cfargotunnel.com", proxied: true });
+      if (url.includes("/access/apps?") && !init?.method) return response([]);
+      if (url.endsWith("/access/apps") && init?.method === "POST") return response({ id: "app-id", name: "Pi", domain: "pi.example.com", aud: "aud-id", type: "self_hosted" });
+      if (url.endsWith("/configurations") && init?.method === "PUT") return response({});
+      if (url.endsWith("/token")) return response("tunnel-token-secret");
+      throw new Error(`Unexpected request: ${url}`);
+    };
+
+    const result = await new CloudflareClient("api-token-secret", fetcher).provision({
+      accountId: "account-id", zoneId: "zone-id", hostname: "pi.example.com", allowedEmail: "only@example.com",
+      teamName: "pi-team", tunnelName: "pi-daemon-test", localPort: 8504, adoptExisting: true,
+    });
+
+    expect(result.config.tunnelId).toBe("tunnel-id");
+    expect(result.created).toEqual(["DNS pi.example.com", "Access application pi.example.com"]);
+    expect(requests.some((item) => item.url.endsWith("/cfd_tunnel") && item.init?.method === "POST")).toBe(false);
+  });
+
+  it("does not adopt a locally managed tunnel even with confirmation", async () => {
+    const fetcher: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.endsWith("/access/organizations")) return response({ auth_domain: "pi-team.cloudflareaccess.com" });
+      if (url.endsWith("/access/identity_providers")) return response([{ id: "otp-id", name: "OTP", type: "onetimepin" }]);
+      if (url.includes("/cfd_tunnel?")) return response([{ id: "tunnel-id", name: "pi-daemon-test", config_src: "local" }]);
+      throw new Error(`Unexpected request: ${url}`);
+    };
+
+    await expect(new CloudflareClient("api-token-secret", fetcher).provision({
+      accountId: "account-id", zoneId: "zone-id", hostname: "pi.example.com", allowedEmail: "only@example.com",
+      teamName: "pi-team", tunnelName: "pi-daemon-test", localPort: 8504, adoptExisting: true,
+    })).rejects.toThrow("not remotely managed");
+  });
+
   it("refuses an existing Access app with another allow policy", async () => {
     const fetcher: typeof fetch = async (input) => {
       const url = String(input);

@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import { validateCloudflareConfig, type CloudflareConfig } from "./config.js";
 import { getAppPaths } from "./paths.js";
 
 export interface SetupMemo {
@@ -10,6 +11,7 @@ export interface SetupMemo {
   accountId: string;
   zoneId: string;
   cloudflareApiToken: string;
+  cloudflare?: CloudflareConfig;
 }
 
 export function validateSetupMemo(value: unknown): SetupMemo {
@@ -19,6 +21,7 @@ export function validateSetupMemo(value: unknown): SetupMemo {
   for (const key of ["defaultCwd", "hostname", "allowedEmail", "accountId", "zoneId", "cloudflareApiToken"]) {
     if (typeof item[key] !== "string" || !(item[key] as string)) throw new Error(`Invalid setup memo field: ${key}`);
   }
+  if (item.cloudflare !== undefined) validateCloudflareConfig(item.cloudflare);
   return value as SetupMemo;
 }
 
