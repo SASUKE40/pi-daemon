@@ -66,7 +66,7 @@ async function setup(fromInstaller = false): Promise<void> {
     const publicHostname = await questionValidated(prompt, "Public hostname", current.cloudflare?.hostname || memo?.hostname || `pi.${zone.name}`, validateHostname);
     const allowedEmail = await questionValidated(prompt, "Only email allowed by Cloudflare Access", current.cloudflare?.allowedEmail || memo?.allowedEmail, validateEmail);
     prompt.print("Saved reinstall choices include the scoped API token in an owner-only (0600) local file.");
-    const rememberSetup = await prompt.confirm("Remember these choices for a future setup or reinstall?", Boolean(memo));
+    const rememberSetup = await prompt.confirm("Remember these choices for a future setup or reinstall?", true);
     const teamName = `pi-${account.id.slice(0, 8)}`;
     const tunnelName = `pi-daemon-${sanitizeName(hostname())}`;
     prompt.print(`Provisioning protected hostname https://${publicHostname} …`);
