@@ -142,7 +142,7 @@ async function completeSession(url: URL, env: Env): Promise<Response> {
 
 function callbackPage(success: boolean, message: string, status = 200): Response {
   const title = success ? "Cloudflare connected" : "Could not connect Cloudflare";
-  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font:16px system-ui,sans-serif;max-width:38rem;margin:15vh auto;padding:0 1.5rem;color:#172033}main{border:1px solid #d9dfeb;border-radius:16px;padding:2rem;box-shadow:0 12px 40px #17203314}h1{font-size:1.5rem;margin-top:0}.ok{color:#087a55}.error{color:#b42318}</style><main><h1 class="${success ? "ok" : "error"}">${title}</h1><p>${message}</p></main></html>`;
+  const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>${title}</title><style>body{font:16px system-ui,sans-serif;max-width:38rem;margin:15vh auto;padding:0 1.5rem;color:#172033}main{border:1px solid #d9dfeb;border-radius:16px;padding:2rem;box-shadow:0 12px 40px #17203314}h1{font-size:1.5rem;margin-top:0}.ok{color:#087a55}.error{color:#b42318}</style><main><h1 class="${success ? "ok" : "error"}">${title}</h1><p>${message}</p></main></html>`;
   return new Response(html, {
     status,
     headers: {

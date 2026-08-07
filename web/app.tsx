@@ -681,7 +681,7 @@ function Composer(props: {
           aria-expanded={commandMenuOpen}
           aria-autocomplete="list"
         />
-        <div className="composerActions">
+        <div className={`composerActions ${props.status === "running" ? "running" : ""}`}>
           <label className="attachButton" title="Add images"><span aria-hidden="true">＋</span><span className="srOnly">Add images</span><input hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { void props.onUpload(event.target.files); event.target.value = ""; }} /></label>
           {props.current && <div className="composerControls">
             {modelItems.length > 0 && (

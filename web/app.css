@@ -137,6 +137,10 @@
 
 html, body, #root { min-height: 100%; margin: 0; }
 
+@media (hover: none) and (pointer: coarse) {
+  html { touch-action: pan-x pan-y; }
+}
+
 body {
   position: relative;
   background: var(--canvas);
@@ -418,8 +422,8 @@ button:disabled { cursor: default; }
 .emptyState h2 { margin: 9px 0 10px; font-size: clamp(25px, 4vw, 38px); letter-spacing: -.05em; line-height: 1.08; }
 .emptyState > p:not(.eyebrow) { max-width: 440px; margin: 0 0 24px; color: var(--ink-soft); font-size: 14px; line-height: 1.6; }
 
-.composerDock { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; padding: 42px max(18px, calc((100% - 860px) / 2)) max(14px, env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--composer-fade) 34%, var(--canvas) 72%); pointer-events: none; }
-.composerPanel { position: relative; border: 1px solid var(--composer-border); border-radius: 18px; background: var(--surface-translucent); box-shadow: var(--composer-shadow); pointer-events: auto; }
+.composerDock { position: absolute; z-index: 2; right: 0; bottom: 0; left: 0; min-width: 0; padding: 42px max(18px, calc((100% - 860px) / 2)) max(14px, env(safe-area-inset-bottom)); background: linear-gradient(transparent, var(--composer-fade) 34%, var(--canvas) 72%); pointer-events: none; }
+.composerPanel { position: relative; width: 100%; min-width: 0; border: 1px solid var(--composer-border); border-radius: 18px; background: var(--surface-translucent); box-shadow: var(--composer-shadow); pointer-events: auto; }
 .slashCommandMenu { position: absolute; z-index: 12; right: 0; bottom: calc(100% + 10px); left: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; color: var(--ink); background: var(--surface); box-shadow: var(--shadow); }
 .slashCommandHeader { display: flex; align-items: center; justify-content: space-between; min-height: 36px; padding: 0 12px; border-bottom: 1px solid var(--line); color: var(--ink-faint); font-size: 9px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; }
 .slashCommandHeader small { font: inherit; }
@@ -435,7 +439,7 @@ button:disabled { cursor: default; }
 .slashCommandHint { display: flex; gap: 14px; min-height: 34px; align-items: center; padding: 0 12px; border-top: 1px solid var(--line); color: var(--ink-faint); background: var(--canvas-soft); font-size: 9px; }
 .slashCommandHint span { display: flex; align-items: center; gap: 4px; }
 .slashCommandHint kbd { min-width: 17px; border: 1px solid var(--line-bright); border-bottom-width: 2px; border-radius: 4px; padding: 1px 4px; color: var(--ink-soft); background: var(--surface); font: inherit; text-align: center; }
-.composerControls { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 2px; margin-left: auto; overflow: hidden; }
+.composerControls { display: flex; flex: 1 1 0; width: 0; min-width: 0; align-items: center; justify-content: flex-end; gap: 2px; margin-left: auto; overflow: hidden; }
 .controlButton { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 210px; height: 34px; padding: 0 8px; border: 0; border-radius: 8px; color: var(--ink-soft); background: transparent; font-size: 10px; font-weight: 650; white-space: nowrap; }
 .controlButton > span:first-child { overflow: hidden; text-overflow: ellipsis; }
 .controlButton:hover, .controlButton[data-popup-open] { color: var(--ink); background: var(--panel); }
@@ -567,7 +571,7 @@ button:disabled { cursor: default; }
   .message.assistant { max-width: 100%; }
   .composerDock { position: relative; padding: 12px 10px max(9px, env(safe-area-inset-bottom)); background: linear-gradient(#0b0d0e00, var(--canvas) 18%); }
   .composerPanel { border-radius: 16px; }
-  .composerPanel textarea { max-height: 30dvh; resize: none; }
+  .composerPanel textarea { max-height: 30dvh; resize: none; font-size: 16px; }
   .composerHint { display: none; }
   .attachButton { min-width: 44px; min-height: 44px; justify-content: center; }
   .attachButton span { display: none; }
@@ -602,6 +606,10 @@ button:disabled { cursor: default; }
   .iconButton { min-width: 44px; width: 44px; height: 44px; }
   .sessionHeading p { max-width: 44vw; }
   .composerControls { padding-top: 7px; }
+  .composerActions.running { flex-wrap: wrap; }
+  .composerActions.running .composerControls { order: -1; flex: 0 0 100%; width: 100%; margin-left: 0; padding-top: 0; }
+  .composerActions.running .controlButton { flex: 1 1 0; justify-content: center; }
+  .composerActions.running .composerActionButton { margin-left: auto; }
   .controlButton { max-width: 185px; }
   .slashCommandItem { grid-template-columns: minmax(100px, auto) minmax(0, 1fr); gap: 9px; }
   .slashCommandItem small { display: none; }

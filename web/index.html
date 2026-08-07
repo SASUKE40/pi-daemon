@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#f7fafb" />
     <meta name="description" content="Secure mobile interface for the Pi coding agent" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -15,6 +15,12 @@
           ? savedTheme
           : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       } catch {}
+
+      if (navigator.maxTouchPoints > 1) {
+        const preventZoom = (event) => event.preventDefault();
+        document.addEventListener("gesturestart", preventZoom, { passive: false });
+        document.addEventListener("gesturechange", preventZoom, { passive: false });
+      }
     </script>
     <title>PI Remote</title>
   </head>
