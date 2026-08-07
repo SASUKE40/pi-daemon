@@ -35,4 +35,16 @@ describe("service renderers", () => {
     expect(plists["com.edward40.pi-daemon.sessiond.plist"]).toContain("<string>/app/sessiond.js</string>");
     expect(plists["com.edward40.pi-daemon.cloudflared.plist"]).toContain("--token-file");
   });
+
+  it("omits cloudflared services for Tailscale Serve", () => {
+    const { cloudflared: _cloudflared, ...tailscaleCommands } = commands;
+    expect(Object.keys(renderSystemdServices(tailscaleCommands))).toEqual([
+      "pi-daemon-sessiond.service",
+      "pi-daemon-web.service",
+    ]);
+    expect(Object.keys(renderLaunchAgents(tailscaleCommands))).toEqual([
+      "com.edward40.pi-daemon.sessiond.plist",
+      "com.edward40.pi-daemon.web.plist",
+    ]);
+  });
 });

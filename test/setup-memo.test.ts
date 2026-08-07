@@ -12,7 +12,6 @@ const memo: SetupMemo = {
   allowedEmail: "only@example.com",
   accountId: "account-id",
   zoneId: "zone-id",
-  cloudflareApiToken: "api-token-secret",
   cloudflare: {
     accountId: "account-id",
     zoneId: "zone-id",
@@ -44,7 +43,7 @@ describe("setup memo", () => {
     const { setupMemoFile } = getAppPaths();
     expect(await loadSetupMemo()).toEqual(memo);
     expect((await stat(setupMemoFile)).mode & 0o777).toBe(0o600);
-    expect(await readFile(setupMemoFile, "utf8")).toContain('"cloudflareApiToken": "api-token-secret"');
+    expect(await readFile(setupMemoFile, "utf8")).not.toContain("cloudflareApiToken");
   });
 
   it("does not reuse a token from a file readable by other users", async () => {
@@ -65,6 +64,34 @@ describe("setup memo", () => {
     await writeFile(setupMemoFile, JSON.stringify(olderMemo), { mode: 0o600 });
 
     await expect(loadSetupMemo()).resolves.toEqual(olderMemo);
+  });
+
+  it("accepts and migrates a legacy memo containing an API token", async () => {
+    const legacyMemo = { ...memo, cloudflareApiToken: "legacy-api-token" };
+    const { configDir, setupMemoFile } = getAppPaths();
+    await mkdir(configDir, { recursive: true });
+    await writeFile(setupMemoFile, JSON.stringify(legacyMemo), { mode: 0o600 });
+
+    await expect(loadSetupMemo()).resolves.toEqual(legacyMemo);
+  });
+
+  it("saves Tailscale Serve choices without a credential", async () => {
+    const tailscaleMemo: SetupMemo = {
+      schemaVersion: 1,
+      defaultCwd: "/work/project",
+      relay: "tailscale",
+      tailscale: {
+        hostname: "pi-device.tail1234.ts.net",
+        allowedLogin: "me@example.com",
+        httpsPort: 443,
+        localPort: 8504,
+      },
+    };
+
+    await saveSetupMemo(tailscaleMemo);
+
+    expect(await loadSetupMemo()).toEqual(tailscaleMemo);
+    expect(await readFile(getAppPaths().setupMemoFile, "utf8")).not.toMatch(/token|credential/i);
   });
 
   it("preserves only the opted-in memo during uninstall cleanup", async () => {

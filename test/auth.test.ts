@@ -15,6 +15,21 @@ const accessConfig: PiDaemonConfig = {
   },
 };
 
+const tailscaleConfig: PiDaemonConfig = {
+  schemaVersion: 1,
+  listenHost: "127.0.0.1",
+  port: 8504,
+  defaultCwd: "/tmp",
+  agentDir: "/tmp/agent",
+  relay: "tailscale",
+  tailscale: {
+    hostname: "pi-device.tail1234.ts.net",
+    allowedLogin: "me@example.com",
+    httpsPort: 443,
+    localPort: 8504,
+  },
+};
+
 describe("Access helpers", () => {
   it("allows only exact loopback hosts", () => {
     expect(isLoopbackHost("127.0.0.1:8504")).toBe(true);
@@ -30,6 +45,40 @@ describe("Access helpers", () => {
   it("builds exact websocket origins", () => {
     expect(allowedOrigins(accessConfig)).toEqual(new Set(["http://127.0.0.1:8504", "http://localhost:8504", "https://pi.example.com"]));
     expect(allowedOrigins(accessConfig).has("https://evil.example.com")).toBe(false);
+  });
+
+  it("builds the Tailscale Serve origin", () => {
+    expect(allowedOrigins(tailscaleConfig)).toEqual(new Set([
+      "http://127.0.0.1:8504",
+      "http://localhost:8504",
+      "https://pi-device.tail1234.ts.net",
+    ]));
+  });
+
+  it("accepts only the configured Tailscale identity and host", async () => {
+    const authorizer = new AccessAuthorizer(tailscaleConfig);
+
+    await expect(authorizer.authorize({
+      host: "pi-device.tail1234.ts.net",
+      "tailscale-user-login": "ME@example.com",
+    })).resolves.toEqual({ local: false, email: "me@example.com" });
+    await expect(authorizer.authorize({
+      host: "pi-device.tail1234.ts.net",
+      "tailscale-user-login": "other@example.com",
+    })).rejects.toThrow("not allowed");
+    await expect(authorizer.authorize({ host: "pi-device.tail1234.ts.net" })).rejects.toThrow("Missing Tailscale identity");
+    await expect(authorizer.authorize({
+      host: "other.tail1234.ts.net",
+      "tailscale-user-login": "me@example.com",
+    })).rejects.toThrow("Unrecognized host");
+  });
+
+  it("does not accept a Tailscale identity header in Cloudflare mode", async () => {
+    const authorizer = new AccessAuthorizer({ ...accessConfig, relay: "cloudflare" });
+    await expect(authorizer.authorize({
+      host: "pi.example.com",
+      "tailscale-user-login": "me@example.com",
+    })).rejects.toThrow("Missing Cloudflare Access assertion");
   });
 
   it("verifies issuer, audience, expiry, signature, and exact email", async () => {

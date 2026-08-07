@@ -8,7 +8,7 @@ import fastifyStatic from "@fastify/static";
 import websocket from "@fastify/websocket";
 import type { WebSocket } from "ws";
 import { AccessAuthorizer, allowedOrigins, isLoopbackHost, hostnameFromHeaders } from "./auth.js";
-import { loadConfig, type PiDaemonConfig } from "./config.js";
+import { loadConfig, publicHostname, type PiDaemonConfig } from "./config.js";
 import { IpcClient } from "./ipc.js";
 import { log } from "./log.js";
 import { getAppPaths } from "./paths.js";
@@ -65,7 +65,7 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
     protocolVersion: PROTOCOL_VERSION,
     version: VERSION,
     defaultCwd: config.defaultCwd,
-    hostname: config.cloudflare?.hostname,
+    hostname: publicHostname(config),
     local: isLoopbackHost(hostnameFromHeaders(request.headers)),
     pushPublicKey: await push.getPublicKey(),
   }));

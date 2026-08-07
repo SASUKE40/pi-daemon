@@ -11,7 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import { marked, Renderer, type Tokens } from "marked";
-import { loadConfig } from "./config.js";
+import { activeRelay, loadConfig } from "./config.js";
 import { log } from "./log.js";
 import { getAppPaths, safeSocketFallback } from "./paths.js";
 import { PushService, type PushNotification } from "./push.js";
@@ -289,9 +289,11 @@ export class SessionDaemon {
   private async notify(notification: PushNotification): Promise<void> {
     try {
       const config = await loadConfig();
-      const subject = config.cloudflare?.allowedEmail
+      const subject = activeRelay(config) === "cloudflare" && config.cloudflare?.allowedEmail
         ? `mailto:${config.cloudflare.allowedEmail}`
-        : "https://localhost";
+        : activeRelay(config) === "tailscale" && config.tailscale?.hostname
+          ? `https://${config.tailscale.hostname}`
+          : "https://localhost";
       await this.push.send(notification, subject);
     } catch (error) {
       log.warn("unable to send session notification", { message: error instanceof Error ? error.message : String(error) });

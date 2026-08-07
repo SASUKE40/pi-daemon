@@ -1,27 +1,36 @@
 import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { validateCloudflareConfig, type CloudflareConfig } from "./config.js";
+import { validateCloudflareConfig, validateTailscaleConfig, type CloudflareConfig, type RelayKind, type TailscaleConfig } from "./config.js";
 import { getAppPaths } from "./paths.js";
 
 export interface SetupMemo {
   schemaVersion: 1;
   defaultCwd: string;
-  hostname: string;
-  allowedEmail: string;
-  accountId: string;
-  zoneId: string;
-  cloudflareApiToken: string;
+  relay?: RelayKind;
+  hostname?: string;
+  allowedEmail?: string;
+  accountId?: string;
+  zoneId?: string;
+  /** Accepted only to migrate setup memos written before browser OAuth. */
+  cloudflareApiToken?: string;
   cloudflare?: CloudflareConfig;
+  tailscale?: TailscaleConfig;
 }
 
 export function validateSetupMemo(value: unknown): SetupMemo {
   if (!value || typeof value !== "object") throw new Error("Setup memo must be an object");
   const item = value as Record<string, unknown>;
   if (item.schemaVersion !== 1) throw new Error("Unsupported setup memo schema");
-  for (const key of ["defaultCwd", "hostname", "allowedEmail", "accountId", "zoneId", "cloudflareApiToken"]) {
+  for (const key of ["defaultCwd"]) {
     if (typeof item[key] !== "string" || !(item[key] as string)) throw new Error(`Invalid setup memo field: ${key}`);
   }
+  if (item.relay !== undefined && item.relay !== "cloudflare" && item.relay !== "tailscale") throw new Error("Invalid setup memo field: relay");
+  for (const key of ["hostname", "allowedEmail", "accountId", "zoneId"]) if (item[key] !== undefined && (typeof item[key] !== "string" || !item[key])) throw new Error(`Invalid setup memo field: ${key}`);
+  if (item.cloudflareApiToken !== undefined && (typeof item.cloudflareApiToken !== "string" || !item.cloudflareApiToken)) throw new Error("Invalid setup memo field: cloudflareApiToken");
   if (item.cloudflare !== undefined) validateCloudflareConfig(item.cloudflare);
+  if (item.tailscale !== undefined) validateTailscaleConfig(item.tailscale);
+  if (item.relay === "cloudflare" && item.cloudflare === undefined) throw new Error("Invalid setup memo field: cloudflare");
+  if (item.relay === "tailscale" && item.tailscale === undefined) throw new Error("Invalid setup memo field: tailscale");
   return value as SetupMemo;
 }
 

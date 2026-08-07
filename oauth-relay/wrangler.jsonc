@@ -1,0 +1,20 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pi-daemon-oauth-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-07",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "OAUTH_SESSIONS",
+        "class_name": "OAuthSession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["OAuthSession"]
+    }
+  ]
+}

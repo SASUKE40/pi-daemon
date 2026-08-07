@@ -52,7 +52,7 @@ export class TunnelNameConflictError extends Error {
 
 export class CloudflareClient {
   constructor(private readonly token: string, private readonly fetcher: typeof fetch = fetch) {
-    if (!token) throw new Error("Cloudflare API token is required");
+    if (!token) throw new Error("Cloudflare API credential is required");
   }
 
   async verify(): Promise<void> {

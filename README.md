@@ -1,10 +1,10 @@
 # Pi Daemon
 
-Pi Daemon runs the [Pi coding agent](https://github.com/earendil-works/pi) in a persistent server session, serves a focused mobile PWA on loopback, and publishes it through a named Cloudflare Tunnel protected by an exact-email Access policy.
+Pi Daemon runs the [Pi coding agent](https://github.com/earendil-works/pi) in a persistent server session, serves a focused mobile PWA on loopback, and makes it available through either private Tailscale Serve or a Cloudflare Tunnel protected by an exact-email Access policy.
 
 ![Pi Daemon web interface](.github/assets/pi-daemon-web.jpg)
 
-> **Security:** An authenticated mobile user can invoke Pi's coding tools, execute commands, and modify files without per-action confirmation. Use a dedicated Cloudflare hostname, protect the email account used for OTP, and do not run the service on a machine you are unwilling to control remotely.
+> **Security:** An authenticated mobile user can invoke Pi's coding tools, execute commands, and modify files without per-action confirmation. Limit access to the intended Tailscale login or Cloudflare email, protect that identity, and do not run the service on a machine you are unwilling to control remotely.
 
 ## One-line installation
 
@@ -16,19 +16,23 @@ Prerequisites:
 
 - `curl` and `tar` (the installer provides its own Node.js 22.19.0/npm runtime without root)
 - macOS 13+ on arm64/x64, or glibc Linux arm64/x64
-- A Cloudflare-managed DNS zone and a scoped API token
+- For the simplest private setup: Tailscale installed and signed in on the host and mobile device
+- Or, for a public hostname: a Cloudflare account with a managed DNS zone
 
-The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `22.19.0`, Pi `0.84.1`, cloudflared `2026.7.3`, and three user-level services. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root. Cloudflare and Pi provider setup then run interactively on the board; on a headless board, open the displayed browser links on another device and paste the resulting scoped Cloudflare API token into the hidden terminal prompt. Invalid or under-scoped tokens can be replaced without restarting setup. The wizard asks whether to save the setup choices and API token in a mode-0600 local file for future setup or reinstall, defaulting to Yes; answer No to discard the token after setup. A saved token is verified again before every reuse. The tunnel connector token is saved separately in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
+The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `22.19.0`, Pi `0.84.1`, and cloudflared `2026.7.3`. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root.
+
+The setup wizard offers two relay choices. Tailscale Serve is the default when the `tailscale` command is available and needs no API token. Cloudflare setup opens a browser consent link and displays a QR code, so a headless board can be authorized from another device without creating or pasting an API token. The CLI uses Authorization Code with PKCE, provisions the resources locally, and revokes the temporary access token when setup finishes. Saved reinstall choices contain resource IDs and user selections, not the OAuth authorization. The tunnel connector token is saved separately in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
 
 ## Architecture
 
 ```text
-Mobile PWA ── Cloudflare Access ── Tunnel ── 127.0.0.1:8504 web gateway
-                                                        │ mode-0600 Unix socket
-                                                        ▼
-                                              long-lived Pi session daemon
-                                                        │
-                                              ~/.pi/agent sessions/auth
+Mobile PWA ── Tailscale Serve ───────────┐
+                                        ├── 127.0.0.1:8504 web gateway
+Mobile PWA ── Cloudflare Access/Tunnel ─┘             │ mode-0600 Unix socket
+                                                      ▼
+                                            long-lived Pi session daemon
+                                                      │
+                                            ~/.pi/agent sessions/auth
 ```
 
 Closing the browser or restarting the web gateway does not stop the Pi run. Restarting the session daemon or rebooting necessarily terminates an in-flight model/tool call, but the append-only session remains resumable. V1 keeps multiple saved sessions and permits one active run globally.
@@ -50,11 +54,21 @@ pi-daemon uninstall
 pi-daemon uninstall --delete-cloudflare
 ```
 
-The default uninstall removes only Pi Daemon services and runtime configuration. It preserves `~/.pi/agent` authentication and sessions and leaves Cloudflare resources intact. If reinstall choices were saved, uninstall asks whether to preserve or forget them; preserving them makes the next setup reuse the directory, hostname, email, account, and zone and offer the saved API token. Deleting Cloudflare resources requires the explicit flag, confirmation, and a freshly entered API token.
+The default uninstall removes Pi Daemon services and runtime configuration, and disables the Pi Daemon Tailscale Serve listener when it is active. It preserves `~/.pi/agent` authentication and sessions and leaves Cloudflare resources intact. If reinstall choices were saved, uninstall asks whether to preserve or forget them. Deleting Cloudflare resources requires the explicit flag, confirmation, and a fresh browser authorization.
 
-## Cloudflare API token permissions
+## Tailscale Serve (recommended for private access)
 
-If a Cloudflare API token has been exposed, **immediately revoke the exposed token** under **Cloudflare > My Profile > API Tokens**. Do not reuse or retry an exposed token.
+Install Tailscale separately and sign in on both the Pi Daemon host and the device that will open the PWA. During `pi-daemon setup`, choose **Tailscale Serve** and confirm the exact Tailscale login allowed to use Pi Daemon. The wizard detects the host's MagicDNS name and configures a persistent HTTPS listener on port 443 forwarding to `http://127.0.0.1:8504`.
+
+Tailscale keeps this URL private to the tailnet. Pi Daemon verifies the exact MagicDNS host and `Tailscale-User-Login` identity header. Tailscale Serve removes spoofed copies of its identity headers before forwarding, while Pi Daemon's backend remains loopback-only. MagicDNS and Tailscale HTTPS must be enabled for the tailnet. If HTTPS consent is required, the Tailscale CLI will guide setup through it.
+
+Pi Daemon will show existing Serve configuration and require confirmation before replacing the root HTTPS port 443 route. `pi-daemon logs tunnel` displays the current Serve status, `pi-daemon restart tunnel` reapplies the route, and uninstall disables that listener. Other Tailscale services and tailnet configuration are not modified.
+
+## Manual Cloudflare API token fallback
+
+Browser OAuth is the default. Manual token entry remains available when the release has no OAuth client configured, the callback service is unavailable, or an account administrator has disabled public OAuth applications. If a Cloudflare API token has been exposed, **immediately revoke the exposed token** under **Cloudflare > My Profile > API Tokens**. Do not reuse or retry an exposed token.
+
+Release maintainers can deploy and register the small headless callback service by following [`oauth-relay/README.md`](oauth-relay/README.md).
 
 Choose **Create Custom Token**, scope it to one account and one DNS zone, and add:
 
@@ -74,7 +88,7 @@ Set the token's resource scopes explicitly:
 - Account Resources > Include > the account owning the domain
 - Zone Resources > Include > the intended DNS zone
 
-This scoped API token is required because `cloudflared`'s browser login cannot configure the Access application and exact-email policy. The setup wizard asks before saving it to the reinstall memo, with Yes as the default. The memo is plaintext JSON protected by owner-only file permissions, so answer No on an untrusted or shared user account; revoke the token if the host is compromised.
+This scoped token is only a fallback because `cloudflared`'s own browser login cannot configure the Access application and exact-email policy. Pi Daemon does not add newly entered manual tokens to the reinstall memo. Older memos containing a saved token remain readable for migration and lose the token the next time choices are saved.
 
 The wizard creates or validates one remotely managed tunnel, one proxied CNAME, one self-hosted Access application, and an Allow policy containing the exact email plus a required One-time PIN login method. Reinstall metadata retains the managed resource IDs. If an older uninstall or interrupted setup left a same-named remote tunnel without those IDs, setup can reuse it only after an explicit default-No confirmation and still refuses conflicting DNS or Access resources.
 
@@ -93,13 +107,14 @@ npm install
 npm run check
 ```
 
-For local testing, create `~/.config/pi-daemon/config.json` or run the setup wizard, start `npm run dev:sessiond`, then run the built web server. The server always binds to `127.0.0.1`; loopback requests are allowed without Cloudflare, while requests using the configured public Host must carry a valid `Cf-Access-Jwt-Assertion`.
+For local testing, create `~/.config/pi-daemon/config.json` or run the setup wizard, start `npm run dev:sessiond`, then run the built web server. The server always binds to `127.0.0.1`; loopback requests are allowed directly, while relay requests must carry the configured Cloudflare Access assertion or Tailscale Serve identity.
 
 Tagged releases build the web package on Ubuntu, attach it directly to the GitHub release, mirror the pinned Node.js and cloudflared assets, and publish SHA-256 checksums plus the installer. No Apple or npm publishing credentials are required.
 
 ## Operational notes
 
 - Prevent system sleep separately if the machine must remain reachable; Pi Daemon does not change power-management settings.
+- Tailscale Serve clients must be connected to the same tailnet and authorized by its ACL or grants policy.
 - If a tunnel token is exposed, rotate it in Cloudflare before starting the connector.
 - Existing system/root cloudflared services are not modified; Pi Daemon installs a separate user connector.
 - If outbound traffic is restricted, allow the push-service endpoints returned by subscribed browsers (including `*.push.apple.com` for Apple devices).

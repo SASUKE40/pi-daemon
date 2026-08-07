@@ -1,6 +1,6 @@
 import type { IncomingHttpHeaders } from "node:http";
 import { createRemoteJWKSet, jwtVerify, type JWTPayload, type JWTVerifyGetKey } from "jose";
-import type { PiDaemonConfig } from "./config.js";
+import { activeRelay, publicHostname, type PiDaemonConfig } from "./config.js";
 
 export interface AuthenticatedIdentity {
   local: boolean;
@@ -19,7 +19,8 @@ export function isLoopbackHost(host: string): boolean {
 
 export function allowedOrigins(config: PiDaemonConfig): Set<string> {
   const origins = new Set([`http://127.0.0.1:${config.port}`, `http://localhost:${config.port}`]);
-  if (config.cloudflare) origins.add(`https://${config.cloudflare.hostname}`);
+  const hostname = publicHostname(config);
+  if (hostname) origins.add(`https://${hostname}`);
   return origins;
 }
 
@@ -32,8 +33,17 @@ export class AccessAuthorizer {
   async authorize(headers: IncomingHttpHeaders): Promise<AuthenticatedIdentity> {
     const host = hostnameFromHeaders(headers);
     if (isLoopbackHost(host)) return { local: true };
+    if (activeRelay(this.config) === "tailscale") {
+      const tailscale = this.config.tailscale;
+      if (!tailscale || host !== tailscale.hostname.toLowerCase()) throw new Error("Unrecognized host");
+      const rawLogin = headers["tailscale-user-login"];
+      const login = (Array.isArray(rawLogin) ? rawLogin[0] : rawLogin)?.trim().toLowerCase();
+      if (!login) throw new Error("Missing Tailscale identity");
+      if (login !== tailscale.allowedLogin.toLowerCase()) throw new Error("Tailscale identity is not allowed");
+      return { local: false, email: login };
+    }
     const cloudflare = this.config.cloudflare;
-    if (!cloudflare || host !== cloudflare.hostname.toLowerCase()) throw new Error("Unrecognized host");
+    if (activeRelay(this.config) !== "cloudflare" || !cloudflare || host !== cloudflare.hostname.toLowerCase()) throw new Error("Unrecognized host");
     const raw = headers["cf-access-jwt-assertion"];
     const token = Array.isArray(raw) ? raw[0] : raw;
     if (!token) throw new Error("Missing Cloudflare Access assertion");

@@ -1,7 +1,7 @@
 {
   "name": "@edward40/pi-daemon",
-  "version": "0.1.16",
-  "description": "Long-running Pi coding agent with a mobile web UI secured by Cloudflare Access",
+  "version": "0.1.17",
+  "description": "Long-running Pi coding agent with a mobile web UI secured by Tailscale Serve or Cloudflare Access",
   "author": "Edward Evans <sasuke688848@gmail.com>",
   "type": "module",
   "license": "MIT",
