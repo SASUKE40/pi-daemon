@@ -2,6 +2,8 @@
 
 Pi Daemon runs the [Pi coding agent](https://github.com/earendil-works/pi) in a persistent server session, serves a focused mobile PWA on loopback, and publishes it through a named Cloudflare Tunnel protected by an exact-email Access policy.
 
+![Pi Daemon web interface](.github/assets/pi-daemon-web.jpg)
+
 > **Security:** An authenticated mobile user can invoke Pi's coding tools, execute commands, and modify files without per-action confirmation. Use a dedicated Cloudflare hostname, protect the email account used for OTP, and do not run the service on a machine you are unwilling to control remotely.
 
 ## One-line installation
@@ -60,6 +62,10 @@ Choose **Create Custom Token**, scope it to one account and one DNS zone, and ad
 - Account > Access: Organizations, Identity Providers, and Groups > Edit/Write
 - Zone > Zone > Read
 - Zone > DNS > Edit/Write
+
+![Cloudflare custom API token permission setup](.github/assets/cloudflare-api-token-guide.jpg)
+
+_Permission-row example. For least privilege, do not leave **All accounts** or **All zones** selected; use the specific resource scopes below._
 
 Set the token's resource scopes explicitly:
 
