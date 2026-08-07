@@ -4,6 +4,7 @@ import { join } from "node:path";
 export interface AppPaths {
   configDir: string;
   configFile: string;
+  setupMemoFile: string;
   dataDir: string;
   runtimeDir: string;
   socketPath: string;
@@ -27,6 +28,7 @@ export function getAppPaths(env: NodeJS.ProcessEnv = process.env): AppPaths {
   return {
     configDir,
     configFile: join(configDir, "config.json"),
+    setupMemoFile: join(configDir, "setup-memo.json"),
     dataDir,
     runtimeDir,
     socketPath: env.PI_DAEMON_SOCKET || join(runtimeDir, "sessiond.sock"),

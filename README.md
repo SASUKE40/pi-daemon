@@ -18,7 +18,7 @@ Prerequisites:
 - macOS 13+ on arm64/x64, or glibc Linux arm64/x64
 - A Cloudflare-managed DNS zone and a scoped API token
 
-The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `22.19.0`, Pi `0.84.1`, cloudflared `2026.7.3`, and three user-level services. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root. Cloudflare and Pi provider setup then run interactively on the board; on a headless board, open the displayed browser links on another device and paste the resulting scoped Cloudflare API token into the hidden terminal prompt. Invalid or under-scoped tokens can be replaced without restarting setup. The installer never stores that API token. The tunnel connector token is saved in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
+The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `22.19.0`, Pi `0.84.1`, cloudflared `2026.7.3`, and three user-level services. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root. Cloudflare and Pi provider setup then run interactively on the board; on a headless board, open the displayed browser links on another device and paste the resulting scoped Cloudflare API token into the hidden terminal prompt. Invalid or under-scoped tokens can be replaced without restarting setup. By default the installer does not retain that API token. You can opt in to saving the setup choices and token in a mode-0600 local file for future setup or reinstall; a saved token is verified again before every reuse. The tunnel connector token is saved separately in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
 
 ## Architecture
 
@@ -48,7 +48,7 @@ pi-daemon uninstall
 pi-daemon uninstall --delete-cloudflare
 ```
 
-The default uninstall removes only Pi Daemon services and daemon configuration. It preserves `~/.pi/agent` authentication and sessions and leaves Cloudflare resources intact. Deleting Cloudflare resources requires the explicit flag, confirmation, and a freshly entered API token.
+The default uninstall removes only Pi Daemon services and runtime configuration. It preserves `~/.pi/agent` authentication and sessions and leaves Cloudflare resources intact. If reinstall choices were saved, uninstall asks whether to preserve or forget them; preserving them makes the next setup reuse the directory, hostname, email, account, and zone and offer the saved API token. Deleting Cloudflare resources requires the explicit flag, confirmation, and a freshly entered API token.
 
 ## Cloudflare API token permissions
 
@@ -72,7 +72,7 @@ Set the token's resource scopes explicitly:
 - Account Resources > Include > the account owning the domain
 - Zone Resources > Include > the intended DNS zone
 
-This scoped API token is required because `cloudflared`'s browser login cannot configure the Access application and exact-email policy. The setup wizard uses the token once and does not save it.
+This scoped API token is required because `cloudflared`'s browser login cannot configure the Access application and exact-email policy. The setup wizard does not save it unless you explicitly opt in to the reinstall memo. The memo is plaintext JSON protected by owner-only file permissions, so do not enable it on an untrusted or shared user account; revoke the token if the host is compromised.
 
 The wizard creates or validates one remotely managed tunnel, one proxied CNAME, one self-hosted Access application, and an Allow policy containing the exact email plus a required One-time PIN login method. It refuses to overwrite conflicting DNS or Access resources.
 
