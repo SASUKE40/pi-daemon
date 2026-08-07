@@ -59,6 +59,14 @@ export class CloudflareClient {
     return this.request<CloudflareZone[]>(`/zones?account.id=${encodeURIComponent(accountId)}&per_page=50`);
   }
 
+  async checkSetupAccess(accountId: string, zoneId: string): Promise<void> {
+    await this.checkReadable("Cloudflare Tunnels", `/accounts/${accountId}/cfd_tunnel?is_deleted=false&per_page=5`);
+    await this.checkReadable("Access applications", `/accounts/${accountId}/access/apps?per_page=5`, true);
+    await this.checkReadable("Access identity providers", `/accounts/${accountId}/access/identity_providers`, true);
+    await this.checkReadable("Access organization", `/accounts/${accountId}/access/organizations`, true);
+    await this.checkReadable("DNS records", `/zones/${zoneId}/dns_records?per_page=5`);
+  }
+
   async provision(input: ProvisionInput): Promise<ProvisionResult> {
     validateHostname(input.hostname);
     validateEmail(input.allowedEmail);
@@ -232,6 +240,16 @@ export class CloudflareClient {
     }
     return envelope.result;
   }
+
+  private async checkReadable(label: string, path: string, allowMissing = false): Promise<void> {
+    try {
+      await this.request(path);
+    } catch (error) {
+      if (allowMissing && error instanceof CloudflareApiError && error.status === 404) return;
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`API token cannot access ${label}: ${detail}`);
+    }
+  }
 }
 
 export class CloudflareApiError extends Error {
@@ -241,11 +259,11 @@ export class CloudflareApiError extends Error {
   }
 }
 
-function validateHostname(hostname: string): void {
+export function validateHostname(hostname: string): void {
   if (!/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i.test(hostname)) throw new Error("Invalid public hostname");
 }
 
-function validateEmail(email: string): void {
+export function validateEmail(email: string): void {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Invalid allowed email");
 }
 

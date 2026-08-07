@@ -16,7 +16,7 @@ Prerequisites:
 - macOS 13+ on arm64/x64, or glibc Linux arm64/x64
 - A Cloudflare-managed DNS zone and a scoped API token
 
-The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `22.19.0`, Pi `0.83.0`, cloudflared `2026.7.3`, and three user-level services. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root. Pi provider setup and Cloudflare login then run interactively on the board; on a headless board, open the displayed browser links on another device and paste the resulting scoped Cloudflare API token into the board terminal. The installer never stores that API token. The tunnel connector token is saved in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
+The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `22.19.0`, Pi `0.83.0`, cloudflared `2026.7.3`, and three user-level services. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root. Cloudflare and Pi provider setup then run interactively on the board; on a headless board, open the displayed browser links on another device and paste the resulting scoped Cloudflare API token into the hidden terminal prompt. Invalid or under-scoped tokens can be replaced without restarting setup. The installer never stores that API token. The tunnel connector token is saved in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
 
 ## Architecture
 
@@ -50,13 +50,16 @@ The default uninstall removes only Pi Daemon services and daemon configuration. 
 
 ## Cloudflare API token permissions
 
-Scope the token to one account and one DNS zone with:
+Choose **Create Custom Token**, scope it to one account and one DNS zone, and add:
 
-- Account and Zone Read
-- Cloudflare Tunnel / Cloudflare One Connectors Write
-- DNS Write
-- Access Apps and Policies Write
-- Access Organizations, Identity Providers, and Groups Write
+- Account > Account Settings > Read
+- Account > Cloudflare Tunnel > Edit (shown as Write in some dashboard versions)
+- Account > Access: Apps and Policies > Edit
+- Account > Access: Organizations, Identity Providers, and Groups > Edit
+- Zone > Zone > Read
+- Zone > DNS > Edit
+
+This scoped API token is required because `cloudflared`'s browser login cannot configure the Access application and exact-email policy. The setup wizard uses the token once and does not save it.
 
 The wizard creates or validates one remotely managed tunnel, one proxied CNAME, one self-hosted Access application, and an Allow policy containing the exact email plus a required One-time PIN login method. It refuses to overwrite conflicting DNS or Access resources.
 

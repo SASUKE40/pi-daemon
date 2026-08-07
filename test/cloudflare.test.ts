@@ -9,6 +9,37 @@ function response(result: unknown, status = 200): Response {
 }
 
 describe("Cloudflare provisioning", () => {
+  it("preflights every API surface used by setup", async () => {
+    const requests: string[] = [];
+    const fetcher: typeof fetch = async (input) => {
+      const url = String(input);
+      requests.push(url);
+      if (url.endsWith("/access/organizations")) return response(null, 404);
+      return response([]);
+    };
+
+    await new CloudflareClient("api-token-secret", fetcher).checkSetupAccess("account-id", "zone-id");
+
+    expect(requests).toEqual([
+      "https://api.cloudflare.com/client/v4/accounts/account-id/cfd_tunnel?is_deleted=false&per_page=5",
+      "https://api.cloudflare.com/client/v4/accounts/account-id/access/apps?per_page=5",
+      "https://api.cloudflare.com/client/v4/accounts/account-id/access/identity_providers",
+      "https://api.cloudflare.com/client/v4/accounts/account-id/access/organizations",
+      "https://api.cloudflare.com/client/v4/zones/zone-id/dns_records?per_page=5",
+    ]);
+  });
+
+  it("identifies the missing permission during setup preflight", async () => {
+    const fetcher: typeof fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/access/apps?")) return response(null, 403);
+      return response([]);
+    };
+
+    await expect(new CloudflareClient("api-token-secret", fetcher).checkSetupAccess("account-id", "zone-id"))
+      .rejects.toThrow("API token cannot access Access applications: failed");
+  });
+
   it("creates an exact-email OTP policy and token-file-compatible tunnel", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher: typeof fetch = async (input, init) => {

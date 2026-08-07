@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-VERSION="${PI_DAEMON_VERSION:-0.1.4}"
+VERSION="${PI_DAEMON_VERSION:-0.1.5}"
 NODE_VERSION="22.19.0"
 PI_VERSION="0.83.0"
 CLOUDFLARED_VERSION="2026.7.3"
@@ -196,7 +196,7 @@ else
   CF_BIN="$TOOLS_DIR/cloudflared"
 fi
 
-printf '\nStarting on-board Pi and Cloudflare login…\n'
+printf '\nStarting guided Pi Daemon setup on this board…\n'
 PATH="$RUNTIME_BIN:$BIN_DIR:$PREFIX/bin:$PATH" PI_DAEMON_PI="$SELECTED_PI" PI_DAEMON_CLOUDFLARED="$CF_BIN" "$SELECTED_DAEMON" setup --from-installer </dev/tty >/dev/tty
 
 printf '\nReady. Management command: %s\n' "$SELECTED_DAEMON"

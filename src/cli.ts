@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { join } from "node:path";
 import { homedir, hostname } from "node:os";
 import qrcode from "qrcode-terminal";
-import { CloudflareClient, type CloudflareAccount, type CloudflareZone } from "./cloudflare.js";
+import { CloudflareClient, validateEmail, validateHostname, type CloudflareAccount, type CloudflareZone } from "./cloudflare.js";
 import { defaultConfig, loadConfig, saveConfig, type PiDaemonConfig } from "./config.js";
 import { getAppPaths } from "./paths.js";
 import { currentServiceCommands, installUserServices, restartService, stopAndRemoveUserServices } from "./services.js";
@@ -15,6 +15,7 @@ import { CLOUDFLARED_VERSION, PI_VERSION, VERSION } from "./version.js";
 
 const execFileAsync = promisify(execFile);
 const INSTALL_URL = "https://github.com/SASUKE40/pi-daemon/releases/latest/download/install.sh";
+const CLOUDFLARE_TOKEN_URL = "https://dash.cloudflare.com/profile/api-tokens";
 
 async function main(): Promise<void> {
   const [command = "status", ...args] = process.argv.slice(2);
@@ -51,26 +52,12 @@ async function setup(fromInstaller = false): Promise<void> {
     const pi = process.env.PI_DAEMON_PI || await findExecutable("pi");
     if (!pi) throw new Error("Pi CLI is missing. Re-run the one-line installer.");
 
-    if (await prompt.confirm("Open Pi now for local /login provider setup?", true)) {
-      prompt.print("In Pi, run /login, finish provider authentication, then exit Pi.");
-      const result = prompt.runInteractive(pi);
-      if (result.status !== 0) throw new Error("Pi provider setup did not exit cleanly");
-    }
-
-    const defaultCwd = await prompt.question("Default working directory", current.defaultCwd);
-    if (!(await stat(defaultCwd)).isDirectory()) throw new Error("Default working directory does not exist");
-    prompt.print("\nCloudflare login");
-    prompt.print("Open https://dash.cloudflare.com/profile/api-tokens and create a scoped API token.");
-    prompt.print("Create a scoped Cloudflare API token with Account/Zone Read, Tunnel Write, DNS Write, Access Apps/Policies Write, and Access Organizations/Identity Providers Write.");
-    prompt.print("The scoped API token is required because cloudflared's browser login cannot configure the Access app and exact-email policy.");
-    const apiToken = await prompt.secret("Cloudflare API token (paste on this board; used once, never saved)");
-    const cloudflare = new CloudflareClient(apiToken);
-    await cloudflare.verify();
-    const account = await selectAccount(await cloudflare.accounts(), prompt);
-    const zone = await selectZone(await cloudflare.zones(account.id), prompt);
-    const publicHostname = await prompt.question("Public hostname", current.cloudflare?.hostname || `pi.${zone.name}`);
-    const allowedEmail = await prompt.question("Only email allowed by Cloudflare Access", current.cloudflare?.allowedEmail);
-    const teamName = await prompt.question("Cloudflare Zero Trust team name", `pi-${account.id.slice(0, 8)}`);
+    const defaultCwd = await questionForDirectory(prompt, "Default working directory", current.defaultCwd);
+    printCloudflareTokenInstructions(prompt);
+    const { cloudflare, account, zone } = await connectCloudflare(prompt);
+    const publicHostname = await questionValidated(prompt, "Public hostname", current.cloudflare?.hostname || `pi.${zone.name}`, validateHostname);
+    const allowedEmail = await questionValidated(prompt, "Only email allowed by Cloudflare Access", current.cloudflare?.allowedEmail, validateEmail);
+    const teamName = `pi-${account.id.slice(0, 8)}`;
     const tunnelName = `pi-daemon-${sanitizeName(hostname())}`;
     prompt.print(`Provisioning protected hostname https://${publicHostname} …`);
     const provisioned = await cloudflare.provision({
@@ -96,6 +83,11 @@ async function setup(fromInstaller = false): Promise<void> {
     prompt.print(`Created or reused: ${provisioned.created.length ? provisioned.created.join(", ") : "all existing managed resources"}`);
     prompt.print(`Mobile URL: https://${publicHostname}`);
     qrcode.generate(`https://${publicHostname}`, { small: true }, (code) => prompt.print(code));
+    if (await prompt.confirm("Open Pi now for local /login provider setup?", true)) {
+      prompt.print("In Pi, run /login, finish provider authentication, then exit Pi.");
+      const result = prompt.runInteractive(pi);
+      if (result.status !== 0) throw new Error("Pi provider setup did not exit cleanly");
+    }
     prompt.print("Setup complete. The Cloudflare API token was not retained.");
   } finally {
     prompt.close();
@@ -197,20 +189,90 @@ async function uninstall(deleteCloudflare: boolean): Promise<void> {
 
 async function selectAccount(accounts: CloudflareAccount[], prompt: TerminalPrompter): Promise<CloudflareAccount> {
   if (!accounts.length) throw new Error("No Cloudflare accounts visible to this token");
-  if (accounts.length === 1) return accounts[0] as CloudflareAccount;
+  if (accounts.length === 1) {
+    const account = accounts[0] as CloudflareAccount;
+    prompt.print(`Account: ${account.name}`);
+    return account;
+  }
   prompt.print(accounts.map((item, index) => `${index + 1}. ${item.name} (${item.id})`).join("\n"));
-  const selected = Number(await prompt.question("Account number", "1")) - 1;
-  if (!accounts[selected]) throw new Error("Invalid account selection");
-  return accounts[selected] as CloudflareAccount;
+  while (true) {
+    const selected = Number(await prompt.question("Account number", "1")) - 1;
+    if (accounts[selected]) return accounts[selected] as CloudflareAccount;
+    prompt.print(`Enter a number from 1 to ${accounts.length}.`);
+  }
 }
 
 async function selectZone(zones: CloudflareZone[], prompt: TerminalPrompter): Promise<CloudflareZone> {
   if (!zones.length) throw new Error("No DNS zones visible to this token");
-  if (zones.length === 1) return zones[0] as CloudflareZone;
+  if (zones.length === 1) {
+    const zone = zones[0] as CloudflareZone;
+    prompt.print(`DNS zone: ${zone.name}`);
+    return zone;
+  }
   prompt.print(zones.map((item, index) => `${index + 1}. ${item.name} (${item.id})`).join("\n"));
-  const selected = Number(await prompt.question("Zone number", "1")) - 1;
-  if (!zones[selected]) throw new Error("Invalid zone selection");
-  return zones[selected] as CloudflareZone;
+  while (true) {
+    const selected = Number(await prompt.question("Zone number", "1")) - 1;
+    if (zones[selected]) return zones[selected] as CloudflareZone;
+    prompt.print(`Enter a number from 1 to ${zones.length}.`);
+  }
+}
+
+function printCloudflareTokenInstructions(prompt: TerminalPrompter): void {
+  prompt.print("\nCloudflare login");
+  prompt.print("Use a scoped API token. cloudflared's browser login cannot configure the Access app and exact-email policy.");
+  prompt.print("Create a Custom Token here (the token is used once and never saved):");
+  prompt.print(CLOUDFLARE_TOKEN_URL);
+  prompt.print("Permissions (Cloudflare may label Edit as Write):");
+  prompt.print("  Account · Account Settings · Read");
+  prompt.print("  Account · Cloudflare Tunnel · Edit");
+  prompt.print("  Account · Access: Apps and Policies · Edit");
+  prompt.print("  Account · Access: Organizations, Identity Providers, and Groups · Edit");
+  prompt.print("  Zone    · Zone · Read");
+  prompt.print("  Zone    · DNS · Edit");
+  prompt.print("Scope Account Resources to the account and Zone Resources to the DNS zone you want to use.");
+}
+
+async function connectCloudflare(prompt: TerminalPrompter): Promise<{ cloudflare: CloudflareClient; account: CloudflareAccount; zone: CloudflareZone }> {
+  while (true) {
+    const apiToken = await prompt.secret("Paste Cloudflare API token (input hidden)");
+    try {
+      const cloudflare = new CloudflareClient(apiToken);
+      prompt.print("Checking token and permissions…");
+      await cloudflare.verify();
+      const account = await selectAccount(await cloudflare.accounts(), prompt);
+      const zone = await selectZone(await cloudflare.zones(account.id), prompt);
+      await cloudflare.checkSetupAccess(account.id, zone.id);
+      prompt.print(`Cloudflare token accepted for ${account.name} / ${zone.name}.`);
+      return { cloudflare, account, zone };
+    } catch (error) {
+      prompt.print(`Could not use that token: ${error instanceof Error ? error.message : String(error)}`);
+      if (!await prompt.confirm("Try Cloudflare login again?", true)) throw new Error("Cloudflare setup cancelled");
+    }
+  }
+}
+
+async function questionForDirectory(prompt: TerminalPrompter, label: string, defaultValue: string): Promise<string> {
+  while (true) {
+    const value = await prompt.question(label, defaultValue);
+    try {
+      if ((await stat(value)).isDirectory()) return value;
+    } catch {
+      // The same concise validation message applies to missing and inaccessible paths.
+    }
+    prompt.print("Enter an existing directory.");
+  }
+}
+
+async function questionValidated(prompt: TerminalPrompter, label: string, defaultValue: string | undefined, validate: (value: string) => void): Promise<string> {
+  while (true) {
+    const value = await prompt.question(label, defaultValue);
+    try {
+      validate(value);
+      return value;
+    } catch (error) {
+      prompt.print(error instanceof Error ? error.message : String(error));
+    }
+  }
 }
 
 async function findCloudflared(): Promise<string> {

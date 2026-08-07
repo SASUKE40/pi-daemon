@@ -1,18 +1,44 @@
-import { closeSync, createReadStream, createWriteStream, openSync } from "node:fs";
+import { openSync } from "node:fs";
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { createInterface, type Interface } from "node:readline/promises";
+import { ReadStream, WriteStream } from "node:tty";
+import { Writable } from "node:stream";
+
+class MuteableTerminalOutput extends Writable {
+  muted = false;
+  readonly isTTY = true;
+
+  constructor(private readonly target: WriteStream) {
+    super();
+  }
+
+  get columns(): number { return this.target.columns; }
+  get rows(): number { return this.target.rows; }
+
+  override _write(chunk: Buffer | string, encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    if (this.muted) {
+      callback();
+      return;
+    }
+    this.target.write(chunk, encoding, callback);
+  }
+}
 
 export class TerminalPrompter {
-  private readonly fd: number;
-  private readonly input: ReturnType<typeof createReadStream>;
-  private readonly output: ReturnType<typeof createWriteStream>;
+  private readonly inputFd: number;
+  private readonly outputFd: number;
+  private readonly input: ReadStream;
+  private readonly output: WriteStream;
+  private readonly readlineOutput: MuteableTerminalOutput;
   private readonly readline: Interface;
 
   constructor(path = "/dev/tty") {
-    this.fd = openSync(path, "r+");
-    this.input = createReadStream(path, { fd: this.fd, autoClose: false });
-    this.output = createWriteStream(path, { fd: this.fd, autoClose: false });
-    this.readline = createInterface({ input: this.input, output: this.output, terminal: true });
+    this.inputFd = openSync(path, "r");
+    this.outputFd = openSync(path, "w");
+    this.input = new ReadStream(this.inputFd);
+    this.output = new WriteStream(this.outputFd);
+    this.readlineOutput = new MuteableTerminalOutput(this.output);
+    this.readline = createInterface({ input: this.input, output: this.readlineOutput, terminal: true });
   }
 
   async question(label: string, defaultValue?: string): Promise<string> {
@@ -29,12 +55,11 @@ export class TerminalPrompter {
 
   async secret(label: string): Promise<string> {
     this.output.write(`${label}: `);
-    const disabled = spawnSync("stty", ["-echo"], { stdio: [this.fd, this.fd, this.fd] });
-    if (disabled.status !== 0) throw new Error("Unable to disable terminal echo");
+    this.readlineOutput.muted = true;
     try {
       return (await this.readline.question("")).trim();
     } finally {
-      spawnSync("stty", ["echo"], { stdio: [this.fd, this.fd, this.fd] });
+      this.readlineOutput.muted = false;
       this.output.write("\n");
     }
   }
@@ -44,13 +69,20 @@ export class TerminalPrompter {
   }
 
   runInteractive(command: string, args: string[] = []): SpawnSyncReturns<Buffer> {
-    return spawnSync(command, args, { stdio: [this.fd, this.fd, this.fd] });
+    const wasRaw = this.input.isRaw;
+    this.readline.pause();
+    if (wasRaw) this.input.setRawMode(false);
+    try {
+      return spawnSync(command, args, { stdio: [this.inputFd, this.outputFd, this.outputFd] });
+    } finally {
+      this.readline.resume();
+      if (wasRaw) this.input.setRawMode(true);
+    }
   }
 
   close(): void {
     this.readline.close();
     this.input.destroy();
     this.output.end();
-    closeSync(this.fd);
   }
 }
