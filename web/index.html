@@ -15,12 +15,6 @@
           ? savedTheme
           : matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
       } catch {}
-
-      if (navigator.maxTouchPoints > 1) {
-        const preventZoom = (event) => event.preventDefault();
-        document.addEventListener("gesturestart", preventZoom, { passive: false });
-        document.addEventListener("gesturechange", preventZoom, { passive: false });
-      }
     </script>
     <title>PI Remote</title>
   </head>

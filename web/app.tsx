@@ -88,6 +88,27 @@ const initialState: AppState = {
   queue: { steering: [], followUp: [] },
 };
 
+export function installTouchZoomGuard(target: Document, maxTouchPoints: number): () => void {
+  if (maxTouchPoints < 2) return () => undefined;
+  const options: AddEventListenerOptions = { passive: false };
+  const preventGestureZoom = (event: Event) => event.preventDefault();
+  const preventMultiTouchZoom = (event: Event) => {
+    if ((event as TouchEvent).touches.length > 1) event.preventDefault();
+  };
+  target.addEventListener("gesturestart", preventGestureZoom, options);
+  target.addEventListener("gesturechange", preventGestureZoom, options);
+  target.addEventListener("gestureend", preventGestureZoom, options);
+  target.addEventListener("touchstart", preventMultiTouchZoom, options);
+  target.addEventListener("touchmove", preventMultiTouchZoom, options);
+  return () => {
+    target.removeEventListener("gesturestart", preventGestureZoom, options);
+    target.removeEventListener("gesturechange", preventGestureZoom, options);
+    target.removeEventListener("gestureend", preventGestureZoom, options);
+    target.removeEventListener("touchstart", preventMultiTouchZoom, options);
+    target.removeEventListener("touchmove", preventMultiTouchZoom, options);
+  };
+}
+
 export function appReducer(state: AppState, action: AppAction): AppState {
   switch (action.type) {
     case "socket.open": return { ...state, connected: true, daemonConnected: true };
@@ -123,7 +144,6 @@ export function PiDaemonApp(): ReactNode {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const [bootstrap, setBootstrap] = useState<Bootstrap>();
   const [draft, setDraft] = useState("");
-  const [delivery, setDelivery] = useState<"steer" | "followUp">("followUp");
   const [attachments, setAttachments] = useState<UploadedAttachment[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
@@ -314,7 +334,7 @@ export function PiDaemonApp(): ReactNode {
   const submit = () => {
     const text = draft.trim();
     if (!text || !state.current) return;
-    const type = state.status === "running" ? `session.${delivery}` : "session.prompt";
+    const type = state.status === "running" ? "session.steer" : "session.prompt";
     send({
       type,
       sessionId: state.current.id,
@@ -444,10 +464,8 @@ export function PiDaemonApp(): ReactNode {
           status={state.status}
           queue={state.queue}
           draft={draft}
-          delivery={delivery}
           attachments={attachments}
           onDraft={setDraft}
-          onDelivery={setDelivery}
           onUpload={upload}
           onRemoveAttachment={(id) => setAttachments((current) => current.filter((attachment) => {
             if (attachment.id !== id) return true;
@@ -578,10 +596,8 @@ function Composer(props: {
   status: SessionStatus;
   queue: { steering: readonly string[]; followUp: readonly string[] };
   draft: string;
-  delivery: "steer" | "followUp";
   attachments: UploadedAttachment[];
   onDraft(value: string): void;
-  onDelivery(value: "steer" | "followUp"): void;
   onUpload(files: FileList | null): void;
   onRemoveAttachment(id: string): void;
   onSubmit(): void;
@@ -593,7 +609,7 @@ function Composer(props: {
   const [activeCommand, setActiveCommand] = useState(0);
   const hasDraft = Boolean(props.draft.trim());
   const actionMode = props.status === "aborting" ? "stopping" : props.status === "running" && !hasDraft ? "stop" : "send";
-  const actionLabel = props.status === "running" ? (props.delivery === "steer" ? "Steer message" : "Queue message") : "Send message";
+  const actionLabel = props.status === "running" ? "Steer message" : "Send message";
   const queuedMessages = [
     ...props.queue.steering.map((text, index) => ({ id: `steer-${index}-${text}`, text, kind: "steer" as const })),
     ...props.queue.followUp.map((text, index) => ({ id: `follow-up-${index}-${text}`, text, kind: "followUp" as const })),
@@ -681,7 +697,7 @@ function Composer(props: {
           aria-expanded={commandMenuOpen}
           aria-autocomplete="list"
         />
-        <div className={`composerActions ${props.status === "running" ? "running" : ""}`}>
+        <div className="composerActions">
           <label className="attachButton" title="Add images"><span aria-hidden="true">＋</span><span className="srOnly">Add images</span><input hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { void props.onUpload(event.target.files); event.target.value = ""; }} /></label>
           {props.current && <div className="composerControls">
             {modelItems.length > 0 && (
@@ -714,7 +730,6 @@ function Composer(props: {
               items={["off", "minimal", "low", "medium", "high", "xhigh", "max"].map((value) => ({ value, label: value }))}
               onChange={(value) => props.onThinking(value as ThinkingLevel)}
             />
-            {props.status === "running" && <ControlSelect label="Message delivery" icon="↳" value={props.delivery} items={[{ value: "followUp", label: "Queue next" }, { value: "steer", label: "Steer now" }]} onChange={(value) => props.onDelivery(value as "steer" | "followUp")} />}
           </div>}
           <Button
             className={`composerActionButton ${actionMode === "send" ? "send" : "stop"}`}
@@ -1367,6 +1382,7 @@ function formatModified(value: string): string {
 
 const root = document.getElementById("root");
 if (root) {
+  installTouchZoomGuard(document, navigator.maxTouchPoints);
   createRoot(root).render(
     <StrictMode>
       <Tooltip.Provider>

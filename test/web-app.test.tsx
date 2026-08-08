@@ -4,7 +4,7 @@ import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
-import { InstallGuidance, modelProviderKind, NotificationSettings, PiDaemonApp, ToastViewport } from "../web/app.js";
+import { InstallGuidance, installTouchZoomGuard, modelProviderKind, NotificationSettings, PiDaemonApp, ToastViewport } from "../web/app.js";
 
 class FakeWebSocket {
   static readonly OPEN = 1;
@@ -70,6 +70,26 @@ describe("modelProviderKind", () => {
     ["local", "generic"],
   ] as const)("maps %s to the %s company mark", (provider, expected) => {
     expect(modelProviderKind(provider)).toBe(expected);
+  });
+});
+
+describe("installTouchZoomGuard", () => {
+  it("prevents Safari gestures and multi-touch movement without blocking one-finger touches", () => {
+    const remove = installTouchZoomGuard(document, 5);
+    const gesture = new Event("gesturestart", { cancelable: true });
+    const pinch = new Event("touchmove", { cancelable: true });
+    const singleTouch = new Event("touchmove", { cancelable: true });
+    Object.defineProperty(pinch, "touches", { value: [{}, {}] });
+    Object.defineProperty(singleTouch, "touches", { value: [{}] });
+
+    document.dispatchEvent(gesture);
+    document.dispatchEvent(pinch);
+    document.dispatchEvent(singleTouch);
+
+    expect(gesture.defaultPrevented).toBe(true);
+    expect(pinch.defaultPrevented).toBe(true);
+    expect(singleTouch.defaultPrevented).toBe(false);
+    remove();
   });
 });
 
@@ -149,22 +169,14 @@ describe("PiDaemonApp", () => {
     });
     await waitFor(() => expect(document.querySelector('.message.live [data-streamdown="strong"]')?.textContent?.replace(/\s+/gu, " ").trim()).toBe("Working now"));
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
-    await user.type(textarea, "Continue afterward");
-    await user.click(screen.getByRole("button", { name: "Queue message" }));
-    expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.followUp", text: "Continue afterward" }));
-    await act(async () => socket?.emit({ type: "queue.update", protocolVersion: 1, sessionId: "session-1", seq: 3, steering: [], followUp: ["Continue afterward"] }));
-    expect((await screen.findByRole("list", { name: "Queued messages" })).textContent).toContain("Continue afterward");
-    expect(screen.getByText("Queued")).toBeTruthy();
-
-    await user.click(screen.getByRole("combobox", { name: "Message delivery" }));
-    await user.click(await screen.findByRole("option", { name: "Steer now" }));
+    expect(screen.queryByRole("combobox", { name: "Message delivery" })).toBeNull();
     await user.type(textarea, "Change direction");
     await user.click(screen.getByRole("button", { name: "Steer message" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.steer", text: "Change direction" }));
     await user.click(screen.getByRole("button", { name: "Stop" }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.abort", sessionId: "session-1" }));
 
-    await act(async () => socket?.emit({ type: "session.status", protocolVersion: 1, sessionId: "session-1", seq: 4, status: "idle" }));
+    await act(async () => socket?.emit({ type: "session.status", protocolVersion: 1, sessionId: "session-1", seq: 3, status: "idle" }));
     expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
     expect(screen.getByRole("button", { name: "Send message" })).toBeTruthy();
     expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();

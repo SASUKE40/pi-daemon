@@ -440,7 +440,7 @@ button:disabled { cursor: default; }
 .slashCommandHint span { display: flex; align-items: center; gap: 4px; }
 .slashCommandHint kbd { min-width: 17px; border: 1px solid var(--line-bright); border-bottom-width: 2px; border-radius: 4px; padding: 1px 4px; color: var(--ink-soft); background: var(--surface); font: inherit; text-align: center; }
 .composerControls { display: flex; flex: 1 1 0; width: 0; min-width: 0; align-items: center; justify-content: flex-end; gap: 2px; margin-left: auto; overflow: hidden; }
-.controlButton { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 210px; height: 34px; padding: 0 8px; border: 0; border-radius: 8px; color: var(--ink-soft); background: transparent; font-size: 10px; font-weight: 650; white-space: nowrap; }
+.controlButton { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 210px; height: 40px; padding: 0 8px; border: 0; border-radius: 8px; color: var(--ink-soft); background: transparent; font-size: 10px; font-weight: 650; white-space: nowrap; }
 .controlButton > span:first-child { overflow: hidden; text-overflow: ellipsis; }
 .controlButton:hover, .controlButton[data-popup-open] { color: var(--ink); background: var(--panel); }
 .controlIcon { display: inline-grid; flex: 0 0 14px; width: 14px; height: 14px; place-items: center; color: var(--control-icon); font-size: 11px; line-height: 1; }
@@ -606,10 +606,6 @@ button:disabled { cursor: default; }
   .iconButton { min-width: 44px; width: 44px; height: 44px; }
   .sessionHeading p { max-width: 44vw; }
   .composerControls { padding-top: 7px; }
-  .composerActions.running { flex-wrap: wrap; }
-  .composerActions.running .composerControls { order: -1; flex: 0 0 100%; width: 100%; margin-left: 0; padding-top: 0; }
-  .composerActions.running .controlButton { flex: 1 1 0; justify-content: center; }
-  .composerActions.running .composerActionButton { margin-left: auto; }
   .controlButton { max-width: 185px; }
   .slashCommandItem { grid-template-columns: minmax(100px, auto) minmax(0, 1fr); gap: 9px; }
   .slashCommandItem small { display: none; }
