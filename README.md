@@ -37,7 +37,7 @@ Mobile PWA ── Cloudflare Access/Tunnel ─┘             │ mode-0600 Unix
                                             ~/.pi/agent sessions/auth
 ```
 
-Closing the browser or restarting the web gateway does not stop the Pi run. Restarting the session daemon or rebooting necessarily terminates an in-flight model/tool call, but the append-only session remains resumable. V1 keeps multiple saved sessions and permits one active run globally.
+Closing the browser or restarting the web gateway does not stop a Pi run. Restarting the session daemon or rebooting necessarily terminates in-flight model/tool calls, but each append-only session remains resumable. Multiple sessions can run in parallel; each individual session still accepts only one active run at a time.
 
 Type `/` at the start of the web composer to discover every command loaded for the current Pi session. The menu includes extension commands, reusable prompt templates, and enabled `/skill:*` commands, supports keyboard filtering and selection, and invokes commands through Pi's normal command expansion path. Terminal-only interactive commands are not shown because they require Pi's local TUI rather than the agent session API.
 

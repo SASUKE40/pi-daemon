@@ -45,6 +45,12 @@ describe("web process boundary", () => {
 async function startFakeDaemon(socketPath: string): Promise<Server> {
   const server = createServer((socket: Socket) => {
     socket.setEncoding("utf8");
+    socket.write(`${JSON.stringify({
+      type: "ready",
+      protocolVersion: 1,
+      activeSessionId: "session-2",
+      activeSessionIds: ["session-1", "session-2"],
+    })}\n`);
     let buffer = "";
     socket.on("data", (chunk: string) => {
       buffer += chunk;
@@ -107,10 +113,14 @@ async function expectSessionList(port: number): Promise<void> {
   const socket = new WebSocket(`ws://127.0.0.1:${port}/api/ws`, { origin: `http://127.0.0.1:${port}` });
   const result = new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => reject(new Error("Timed out waiting for session list")), 5_000);
+    let receivedActiveSessions = false;
+    let receivedSessionList = false;
     socket.on("open", () => socket.send(JSON.stringify({ protocolVersion: 1, requestId: "list", type: "session.list" })));
     socket.on("message", (raw) => {
-      const message = JSON.parse(String(raw)) as { type: string };
-      if (message.type === "session.list") {
+      const message = JSON.parse(String(raw)) as { type: string; activeSessionIds?: string[] };
+      if (message.type === "ready" && message.activeSessionIds?.join(",") === "session-1,session-2") receivedActiveSessions = true;
+      if (message.type === "session.list") receivedSessionList = true;
+      if (receivedActiveSessions && receivedSessionList) {
         clearTimeout(timeout);
         resolve();
       }

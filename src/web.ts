@@ -35,6 +35,7 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
   const app = Fastify({ logger: false, bodyLimit: MAX_ATTACHMENT_BYTES + 1024 });
   const ipc = new IpcClient(getAppPaths().socketPath);
   const sockets = new Set<WebSocket>();
+  const activeSessionIds = new Set<string>();
   const attachments = new Map<string, PendingAttachment>();
   const push = new PushService();
   const publicRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -124,7 +125,14 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
       return;
     }
     sockets.add(socket);
-    socket.send(JSON.stringify(event({ type: "ready" })));
+    const activeIds = [...activeSessionIds];
+    socket.send(JSON.stringify(event({
+      type: "ready",
+      ...(activeIds.length ? {
+        activeSessionIds: activeIds,
+        activeSessionId: activeIds[activeIds.length - 1] as string,
+      } : {}),
+    })));
     socket.on("message", (raw) => {
       let command: ClientCommand;
       try {
@@ -142,9 +150,23 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
     socket.on("close", () => sockets.delete(socket));
   });
 
-  ipc.onEvent((serverEvent) => broadcast(sockets, serverEvent));
+  ipc.onEvent((serverEvent) => {
+    if (serverEvent.type === "ready") {
+      activeSessionIds.clear();
+      for (const sessionId of serverEvent.activeSessionIds || (serverEvent.activeSessionId ? [serverEvent.activeSessionId] : [])) {
+        activeSessionIds.add(sessionId);
+      }
+    } else if (serverEvent.type === "session.status") {
+      if (serverEvent.status === "idle") activeSessionIds.delete(serverEvent.sessionId);
+      else activeSessionIds.add(serverEvent.sessionId);
+    }
+    broadcast(sockets, serverEvent);
+  });
   ipc.onState((connected) => {
-    if (!connected) broadcast(sockets, event({ type: "error", code: "daemon_unavailable", message: "Session daemon disconnected" }));
+    if (!connected) {
+      activeSessionIds.clear();
+      broadcast(sockets, event({ type: "error", code: "daemon_unavailable", message: "Session daemon disconnected" }));
+    }
   });
   ipc.start();
   const cleanup = setInterval(() => {

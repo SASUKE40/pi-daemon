@@ -209,7 +209,12 @@ export function PiDaemonApp(): ReactNode {
       switch (message.type) {
         case "ready": {
           dispatch({ type: "daemon.ready" });
-          const resumeId = preferredSessionRef.current || message.activeSessionId || window.localStorage.getItem("pi-daemon-last-session");
+          const rememberedId = window.localStorage.getItem("pi-daemon-last-session");
+          const activeSessionIds = message.activeSessionIds || (message.activeSessionId ? [message.activeSessionId] : []);
+          const resumeId = preferredSessionRef.current
+            || (rememberedId && activeSessionIds.includes(rememberedId) ? rememberedId : undefined)
+            || activeSessionIds[activeSessionIds.length - 1]
+            || rememberedId;
           if (resumeId) send({ type: "session.open", sessionId: resumeId });
           break;
         }
@@ -240,7 +245,7 @@ export function PiDaemonApp(): ReactNode {
           if (message.sessionId === stateRef.current.current?.id) dispatch({ type: "session.status", status: message.status });
           if (message.message) showError(message.message);
           if (message.status === "idle") {
-            send({ type: "session.open", sessionId: message.sessionId });
+            if (message.sessionId === stateRef.current.current?.id) send({ type: "session.open", sessionId: message.sessionId });
             send({ type: "session.list" });
           }
           break;

@@ -55,7 +55,7 @@ export interface SessionSnapshot {
 }
 
 export type ServerEvent =
-  | { type: "ready"; protocolVersion: typeof PROTOCOL_VERSION; requestId?: string; activeSessionId?: string }
+  | { type: "ready"; protocolVersion: typeof PROTOCOL_VERSION; requestId?: string; activeSessionId?: string; activeSessionIds?: string[] }
   | { type: "session.list"; protocolVersion: typeof PROTOCOL_VERSION; requestId: string; sessions: SessionSummary[] }
   | { type: "session.snapshot"; protocolVersion: typeof PROTOCOL_VERSION; requestId?: string; session: SessionSnapshot }
   | { type: "session.event"; protocolVersion: typeof PROTOCOL_VERSION; sessionId: string; seq: number; event: unknown }

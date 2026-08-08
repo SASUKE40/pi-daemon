@@ -415,6 +415,51 @@ describe("PiDaemonApp", () => {
     await act(async () => socket?.onclose?.());
     await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(2), { timeout: 1_500 });
   });
+
+  it("resumes the remembered parallel run without letting a background completion steal focus", async () => {
+    window.localStorage.setItem("pi-daemon-last-session", "remembered-running");
+    render(<Tooltip.Provider><Toast.Provider><PiDaemonApp /><ToastViewport /></Toast.Provider></Tooltip.Provider>);
+    await waitFor(() => expect(FakeWebSocket.instances).toHaveLength(1));
+    const socket = FakeWebSocket.instances[0];
+
+    await act(async () => {
+      socket?.onopen?.();
+      socket?.emit({
+        type: "ready",
+        protocolVersion: 1,
+        activeSessionId: "newest-running",
+        activeSessionIds: ["remembered-running", "newest-running"],
+      });
+    });
+    expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.open", sessionId: "remembered-running" }));
+
+    await act(async () => socket?.emit({
+      type: "session.snapshot",
+      protocolVersion: 1,
+      session: {
+        id: "remembered-running",
+        cwd: "/workspace/remembered",
+        name: "Remembered task",
+        thinking: "medium",
+        streaming: true,
+        messages: [],
+        availableModels: [],
+      },
+    }));
+    const listCount = commands(socket).filter((item) => item.type === "session.list").length;
+
+    await act(async () => socket?.emit({
+      type: "session.status",
+      protocolVersion: 1,
+      sessionId: "background-running",
+      seq: 1,
+      status: "idle",
+    }));
+
+    expect(screen.getByRole("heading", { name: "Remembered task" })).toBeTruthy();
+    expect(commands(socket)).not.toContainEqual(expect.objectContaining({ type: "session.open", sessionId: "background-running" }));
+    expect(commands(socket).filter((item) => item.type === "session.list")).toHaveLength(listCount + 1);
+  });
 });
 
 describe("InstallGuidance", () => {

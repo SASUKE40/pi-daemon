@@ -30,9 +30,26 @@ import {
 interface RuntimeSession {
   session: AgentSession;
   seq: number;
+  runActive: boolean;
   unsubscribe: () => void;
   notifications: SessionNotificationTracker;
 }
+
+export type SessionInfo = Awaited<ReturnType<typeof SessionManager.listAll>>[number];
+
+export interface SessionDaemonDependencies {
+  listSessions(): Promise<SessionInfo[]>;
+  createManager(cwd: string): SessionManager;
+  openManager(path: string): SessionManager;
+  createSession(manager: SessionManager): Promise<AgentSession>;
+}
+
+const defaultDependencies: SessionDaemonDependencies = {
+  listSessions: () => SessionManager.listAll(),
+  createManager: (cwd) => SessionManager.create(cwd),
+  openManager: (path) => SessionManager.open(path),
+  createSession: createRuntimeSession,
+};
 
 export interface SessionDaemonHandle {
   socketPath: string;
@@ -42,12 +59,16 @@ export interface SessionDaemonHandle {
 export class SessionDaemon {
   private readonly clients = new Set<Socket>();
   private readonly sessions = new Map<string, RuntimeSession>();
+  private readonly sessionLoads = new Map<string, Promise<RuntimeSession>>();
   private server?: Server;
-  private activeSessionId: string | undefined;
   private socketPath: string;
   private readonly push: PushService;
 
-  constructor(socketPath = getAppPaths().socketPath, push = new PushService()) {
+  constructor(
+    socketPath = getAppPaths().socketPath,
+    push = new PushService(),
+    private readonly dependencies = defaultDependencies,
+  ) {
     this.socketPath = socketPath;
     this.push = push;
   }
@@ -69,10 +90,9 @@ export class SessionDaemon {
   }
 
   async close(): Promise<void> {
-    for (const runtime of this.sessions.values()) {
-      runtime.unsubscribe();
-      if (runtime.session.isStreaming) await runtime.session.abort().catch(() => undefined);
-    }
+    const runtimes = [...this.sessions.values()];
+    for (const runtime of runtimes) runtime.unsubscribe();
+    await Promise.all(runtimes.filter(isRuntimeRunning).map((runtime) => runtime.session.abort().catch(() => undefined)));
     for (const client of this.clients) client.destroy();
     if (this.server) await new Promise<void>((resolve) => this.server?.close(() => resolve()));
     await unlink(this.socketPath).catch(() => undefined);
@@ -103,7 +123,14 @@ export class SessionDaemon {
     this.clients.add(socket);
     socket.setEncoding("utf8");
     let buffer = "";
-    this.write(socket, event({ type: "ready", ...(this.activeSessionId ? { activeSessionId: this.activeSessionId } : {}) }));
+    const activeSessionIds = this.activeSessionIds();
+    this.write(socket, event({
+      type: "ready",
+      ...(activeSessionIds.length ? {
+        activeSessionIds,
+        activeSessionId: activeSessionIds[activeSessionIds.length - 1] as string,
+      } : {}),
+    }));
     socket.on("data", (chunk: string) => {
       buffer += chunk;
       for (;;) {
@@ -137,13 +164,13 @@ export class SessionDaemon {
   private async handleCommand(socket: Socket, command: ClientCommand): Promise<void> {
     switch (command.type) {
       case "session.list": {
-        const sessions = (await SessionManager.listAll()).map(toSummary);
+        const sessions = (await this.dependencies.listSessions()).map(toSummary);
         this.write(socket, event({ type: "session.list", requestId: command.requestId, sessions }));
         return;
       }
       case "session.create": {
         const cwd = await ensureWorkingDirectory(command.cwd);
-        const manager = SessionManager.create(cwd);
+        const manager = this.dependencies.createManager(cwd);
         const runtime = await this.loadRuntime(manager);
         if (command.name?.trim()) runtime.session.sessionManager.appendSessionInfo(command.name.trim());
         if (command.model) await this.setModel(runtime, command.model.provider, command.model.id);
@@ -164,17 +191,17 @@ export class SessionDaemon {
       }
       case "session.prompt": {
         const runtime = await this.getOrOpen(command.sessionId);
-        if (this.activeSessionId) {
+        if (isRuntimeRunning(runtime)) {
           this.write(socket, event({
-            type: "error", requestId: command.requestId, code: "daemon_busy",
-            message: "Another Pi session is currently running", activeSessionId: this.activeSessionId,
+            type: "error", requestId: command.requestId, code: "session_busy",
+            message: "This Pi session is already running",
           }));
           return;
         }
-        this.activeSessionId = runtime.session.sessionId;
+        const images = toImages(command.attachments);
+        runtime.runActive = true;
         runtime.notifications.begin();
         this.emitStatus(runtime, "running");
-        const images = toImages(command.attachments);
         void runtime.session.prompt(command.text, images ? { images } : {}).then(() => {
           const notification = runtime.notifications.complete(runtime.session.sessionId);
           if (notification) void this.notify(notification);
@@ -185,7 +212,7 @@ export class SessionDaemon {
           this.emitStatus(runtime, "error", message);
           void this.notify(notification);
         }).finally(() => {
-          if (this.activeSessionId === runtime.session.sessionId) this.activeSessionId = undefined;
+          runtime.runActive = false;
           this.emitStatus(runtime, "idle");
         });
         return;
@@ -193,7 +220,7 @@ export class SessionDaemon {
       case "session.steer":
       case "session.followUp": {
         const runtime = await this.getOrOpen(command.sessionId);
-        if (this.activeSessionId !== runtime.session.sessionId || !runtime.session.isStreaming) throw new Error("Session is not currently running");
+        if (!runtime.runActive || !runtime.session.isStreaming) throw new Error("Session is not currently running");
         const images = toImages(command.attachments);
         if (command.type === "session.steer") await runtime.session.steer(command.text, images);
         else await runtime.session.followUp(command.text, images);
@@ -202,7 +229,7 @@ export class SessionDaemon {
       }
       case "session.abort": {
         const runtime = await this.getOrOpen(command.sessionId);
-        if (runtime.session.isStreaming) {
+        if (isRuntimeRunning(runtime)) {
           runtime.notifications.abort();
           this.emitStatus(runtime, "aborting");
           await runtime.session.abort();
@@ -211,7 +238,7 @@ export class SessionDaemon {
       }
       case "session.setModel": {
         const runtime = await this.getOrOpen(command.sessionId);
-        if (runtime.session.isStreaming) throw new Error("Cannot change model while running");
+        if (isRuntimeRunning(runtime)) throw new Error("Cannot change model while running");
         await this.setModel(runtime, command.provider, command.modelId);
         this.broadcast(event({ type: "session.snapshot", requestId: command.requestId, session: snapshot(runtime) }));
         return;
@@ -227,30 +254,35 @@ export class SessionDaemon {
   private async getOrOpen(id: string): Promise<RuntimeSession> {
     const loaded = this.sessions.get(id);
     if (loaded) return loaded;
-    const info = (await SessionManager.listAll()).find((item) => item.id === id || item.path === id);
+    const info = (await this.dependencies.listSessions()).find((item) => item.id === id || item.path === id);
     if (!info) throw new Error(`Session not found: ${id}`);
-    return this.loadRuntime(SessionManager.open(info.path));
+    return this.loadRuntime(this.dependencies.openManager(info.path));
   }
 
   private async loadRuntime(manager: SessionManager): Promise<RuntimeSession> {
-    const existing = this.sessions.get(manager.getSessionId());
+    const sessionId = manager.getSessionId();
+    const existing = this.sessions.get(sessionId);
     if (existing) return existing;
-    const config = await loadConfig();
-    const settingsManager = SettingsManager.create(manager.getCwd(), config.agentDir);
-    const resourceLoader = new DefaultResourceLoader({
-      cwd: manager.getCwd(),
-      agentDir: config.agentDir,
-      settingsManager,
-    });
-    await resourceLoader.reload();
-    const { session } = await createAgentSession({
-      cwd: manager.getCwd(),
-      agentDir: config.agentDir,
-      sessionManager: manager,
-      settingsManager,
-      resourceLoader,
-    });
-    const runtime: RuntimeSession = { session, seq: 0, unsubscribe: () => undefined, notifications: new SessionNotificationTracker() };
+    const pending = this.sessionLoads.get(sessionId);
+    if (pending) return pending;
+    const loading = this.initializeRuntime(manager);
+    this.sessionLoads.set(sessionId, loading);
+    try {
+      return await loading;
+    } finally {
+      if (this.sessionLoads.get(sessionId) === loading) this.sessionLoads.delete(sessionId);
+    }
+  }
+
+  private async initializeRuntime(manager: SessionManager): Promise<RuntimeSession> {
+    const session = await this.dependencies.createSession(manager);
+    const runtime: RuntimeSession = {
+      session,
+      seq: 0,
+      runActive: session.isStreaming,
+      unsubscribe: () => undefined,
+      notifications: new SessionNotificationTracker(),
+    };
     await session.bindExtensions({
       mode: "rpc",
       onError: (error) => this.broadcast(event({
@@ -262,6 +294,10 @@ export class SessionDaemon {
     runtime.unsubscribe = session.subscribe((agentEvent) => this.onAgentEvent(runtime, agentEvent));
     this.sessions.set(session.sessionId, runtime);
     return runtime;
+  }
+
+  private activeSessionIds(): string[] {
+    return [...this.sessions.values()].filter(isRuntimeRunning).map((runtime) => runtime.session.sessionId);
   }
 
   private onAgentEvent(runtime: RuntimeSession, agentEvent: AgentSessionEvent): void {
@@ -327,7 +363,7 @@ function snapshot(runtime: RuntimeSession): SessionSnapshot {
     ...(session.sessionFile ? { path: session.sessionFile } : {}),
     ...(model ? { model: { provider: model.provider, id: model.id, ...(model.name ? { name: model.name } : {}) } } : {}),
     thinking: session.thinkingLevel as ThinkingLevel,
-    streaming: session.isStreaming,
+    streaming: isRuntimeRunning(runtime),
     messages: session.state.messages,
     availableModels: session.modelRuntime.getAvailableSnapshot().map((item) => ({
       provider: item.provider,
@@ -336,6 +372,29 @@ function snapshot(runtime: RuntimeSession): SessionSnapshot {
     })),
     slashCommands: getSlashCommands(session),
   };
+}
+
+function isRuntimeRunning(runtime: RuntimeSession): boolean {
+  return runtime.runActive || runtime.session.isStreaming;
+}
+
+async function createRuntimeSession(manager: SessionManager): Promise<AgentSession> {
+  const config = await loadConfig();
+  const settingsManager = SettingsManager.create(manager.getCwd(), config.agentDir);
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: manager.getCwd(),
+    agentDir: config.agentDir,
+    settingsManager,
+  });
+  await resourceLoader.reload();
+  const { session } = await createAgentSession({
+    cwd: manager.getCwd(),
+    agentDir: config.agentDir,
+    sessionManager: manager,
+    settingsManager,
+    resourceLoader,
+  });
+  return session;
 }
 
 function toSummary(info: Awaited<ReturnType<typeof SessionManager.listAll>>[number]): SessionSummary {
