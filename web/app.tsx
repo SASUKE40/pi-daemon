@@ -1,6 +1,7 @@
 import { lazy, StrictMode, Suspense, useCallback, useEffect, useMemo, useReducer, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "@base-ui/react/button";
+import { Checkbox } from "@base-ui/react/checkbox";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
@@ -719,8 +720,9 @@ function BuiltinCommandDialog(props: {
   const saveSettings = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
+    const formData = new FormData(form);
     const checked = (name: string) => (form.elements.namedItem(name) as HTMLInputElement | null)?.checked ?? false;
-    const value = (name: string) => (form.elements.namedItem(name) as HTMLSelectElement | null)?.value || "all";
+    const value = (name: string) => String(formData.get(name) || "all");
     props.onCommand("settings", { values: {
       autoCompaction: checked("autoCompaction"),
       autoRetry: checked("autoRetry"),
@@ -754,11 +756,11 @@ function BuiltinCommandDialog(props: {
     if (result.kind === "settings" && settings) {
       return <form className="dialogForm commandSettings" onSubmit={saveSettings}>
         <div className="commandCurrentModel"><strong>{props.current?.model?.name || props.current?.model?.id || "No model selected"}</strong><span>Thinking: {props.current?.thinking || "off"}</span></div>
-        <label className="toggleField"><input name="autoCompaction" type="checkbox" defaultChecked={Boolean(settings.autoCompaction)} /><span>Automatic context compaction</span></label>
-        <label className="toggleField"><input name="autoRetry" type="checkbox" defaultChecked={Boolean(settings.autoRetry)} /><span>Retry transient provider failures</span></label>
-        <label className="toggleField"><input name="skillCommands" type="checkbox" defaultChecked={Boolean(settings.skillCommands)} /><span>Enable /skill:* commands</span></label>
-        <label className="fieldLabel">Steering delivery<select className="textInput" name="steeringMode" defaultValue={String(settings.steeringMode || "all")}><option value="all">All at once</option><option value="one-at-a-time">One at a time</option></select></label>
-        <label className="fieldLabel">Follow-up delivery<select className="textInput" name="followUpMode" defaultValue={String(settings.followUpMode || "all")}><option value="all">All at once</option><option value="one-at-a-time">One at a time</option></select></label>
+        <SettingsCheckbox name="autoCompaction" label="Automatic context compaction" defaultChecked={Boolean(settings.autoCompaction)} />
+        <SettingsCheckbox name="autoRetry" label="Retry transient provider failures" defaultChecked={Boolean(settings.autoRetry)} />
+        <SettingsCheckbox name="skillCommands" label="Enable /skill:* commands" defaultChecked={Boolean(settings.skillCommands)} />
+        <SettingsSelect label="Steering delivery" name="steeringMode" defaultValue={String(settings.steeringMode || "all")} />
+        <SettingsSelect label="Follow-up delivery" name="followUpMode" defaultValue={String(settings.followUpMode || "all")} />
         <div className="dialogActions"><Dialog.Close className="secondaryButton">Cancel</Dialog.Close><Button className="primaryButton" type="submit">Save settings</Button></div>
       </form>;
     }
@@ -1177,8 +1179,44 @@ function ControlSelect(props: { label: string; icon?: ReactNode; value: string; 
   );
 }
 
+const DELIVERY_MODE_ITEMS = [
+  { value: "all", label: "All at once" },
+  { value: "one-at-a-time", label: "One at a time" },
+] as const;
+
+function SettingsCheckbox(props: { name: string; label: string; defaultChecked: boolean }): ReactNode {
+  return (
+    <label className="settingsCheckboxField">
+      <Checkbox.Root name={props.name} defaultChecked={props.defaultChecked} className="settingsCheckbox">
+        <Checkbox.Indicator className="settingsCheckboxIndicator"><CheckIcon /></Checkbox.Indicator>
+      </Checkbox.Root>
+      <span className="settingsCheckboxText">{props.label}</span>
+    </label>
+  );
+}
+
+function SettingsSelect(props: { label: string; name: string; defaultValue: string }): ReactNode {
+  return (
+    <div className="settingsSelectField">
+      <Select.Root name={props.name} items={DELIVERY_MODE_ITEMS} defaultValue={props.defaultValue}>
+        <Select.Label className="fieldLabel">{props.label}</Select.Label>
+        <Select.Trigger className="textInput settingsSelectTrigger"><Select.Value /><Select.Icon className="selectorIcon"><ChevronIcon /></Select.Icon></Select.Trigger>
+        <Select.Portal>
+          <Select.Positioner className="popupPositioner dialogSelectPositioner" side="bottom" sideOffset={6} align="start" alignItemWithTrigger={false}>
+            <Select.Popup className="selectPopup settingsSelectPopup"><Select.List className="popupList">{DELIVERY_MODE_ITEMS.map((item) => <Select.Item key={item.value} value={item.value} className="popupItem"><Select.ItemIndicator>✓</Select.ItemIndicator><Select.ItemText>{item.label}</Select.ItemText></Select.Item>)}</Select.List></Select.Popup>
+          </Select.Positioner>
+        </Select.Portal>
+      </Select.Root>
+    </div>
+  );
+}
+
 function ChevronIcon(): ReactNode {
   return <svg aria-hidden="true" focusable="false" viewBox="0 0 12 12"><path d="m3 4.5 3 3 3-3" /></svg>;
+}
+
+function CheckIcon(): ReactNode {
+  return <svg aria-hidden="true" focusable="false" viewBox="0 0 14 14"><path d="m3 7.2 2.5 2.5L11 4.4" /></svg>;
 }
 
 function SearchIcon(): ReactNode {

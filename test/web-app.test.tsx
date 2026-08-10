@@ -392,6 +392,24 @@ describe("PiDaemonApp", () => {
       },
     }));
     expect(await screen.findByRole("heading", { name: "Pi settings" })).toBeTruthy();
+
+    const steeringSelect = screen.getByRole("combobox", { name: "Steering delivery" });
+    const followUpSelect = screen.getByRole("combobox", { name: "Follow-up delivery" });
+    const autoCompaction = screen.getByRole("checkbox", { name: "Automatic context compaction" });
+    expect(steeringSelect.tagName).toBe("BUTTON");
+    expect(followUpSelect.tagName).toBe("BUTTON");
+    expect(autoCompaction.tagName).toBe("SPAN");
+    await user.click(steeringSelect);
+    await user.click(await screen.findByRole("option", { name: "One at a time" }));
+    await user.click(followUpSelect);
+    await user.click(await screen.findByRole("option", { name: "One at a time" }));
+    await user.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(commands(socket)).toContainEqual(expect.objectContaining({
+      type: "session.command",
+      sessionId: "command-session",
+      command: "settings",
+      payload: expect.objectContaining({ values: expect.objectContaining({ autoCompaction: true, steeringMode: "one-at-a-time", followUpMode: "one-at-a-time" }) }),
+    }));
   });
 
   it("renders consecutive persisted tool calls as a compact expandable activity log", async () => {
