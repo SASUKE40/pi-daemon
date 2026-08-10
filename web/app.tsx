@@ -14,7 +14,8 @@ import geminiProviderIcon from "@lobehub/icons-static-svg/icons/gemini.svg?url";
 import mistralProviderIcon from "@lobehub/icons-static-svg/icons/mistral.svg?url";
 import openAiProviderIcon from "@lobehub/icons-static-svg/icons/openai.svg?url";
 import xAiProviderIcon from "@lobehub/icons-static-svg/icons/xai.svg?url";
-import type { ClientCommand, ServerEvent, SessionSnapshot, SessionSummary, SlashCommand, ThinkingLevel } from "../src/protocol.ts";
+import type { BuiltinCommandPayload, BuiltinCommandResult, BuiltinSlashCommandName, ClientCommand, ServerEvent, SessionSnapshot, SessionSummary, SlashCommand, ThinkingLevel } from "../src/protocol.ts";
+import { WEB_BUILTIN_SLASH_COMMANDS } from "../src/slash-commands.ts";
 import "streamdown/styles.css";
 import "./app.css";
 
@@ -59,6 +60,11 @@ type TimelineRow =
 type SessionStatus = "idle" | "running" | "aborting" | "error";
 type Theme = "light" | "dark";
 
+interface BuiltinPanelState {
+  command: BuiltinSlashCommandName;
+  result: BuiltinCommandResult;
+}
+
 interface AppState {
   connected: boolean;
   daemonConnected: boolean;
@@ -75,6 +81,7 @@ type AppAction =
   | { type: "daemon.ready" }
   | { type: "session.list"; sessions: SessionSummary[] }
   | { type: "session.snapshot"; session: SessionSnapshot }
+  | { type: "session.closed" }
   | { type: "session.event"; value: unknown }
   | { type: "session.status"; status: SessionStatus }
   | { type: "queue.update"; steering: readonly string[]; followUp: readonly string[] };
@@ -115,13 +122,20 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case "socket.close": return { ...state, connected: false, daemonConnected: false };
     case "daemon.ready": return { ...state, daemonConnected: true };
     case "session.list": return { ...state, sessions: action.sessions };
-    case "session.snapshot": return {
-      ...state,
-      current: action.session,
-      timeline: [...action.session.messages],
-      status: action.session.streaming ? "running" : "idle",
-      queue: { steering: [], followUp: [] },
-    };
+    case "session.snapshot": {
+      const session = { ...action.session, slashCommands: mergeSlashCommands(action.session.slashCommands || []) };
+      return {
+        ...state,
+        current: session,
+        timeline: [...session.messages],
+        status: session.streaming ? "running" : "idle",
+        queue: { steering: [], followUp: [] },
+      };
+    }
+    case "session.closed": {
+      const { current: _current, ...rest } = state;
+      return { ...rest, timeline: [], status: "idle", queue: { steering: [], followUp: [] } };
+    }
     case "session.event": return { ...state, timeline: applyAgentEvent(state.timeline, action.value) };
     case "session.status": return { ...state, status: action.status, ...(action.status === "idle" ? { queue: { steering: [], followUp: [] } } : {}) };
     case "queue.update": return { ...state, queue: { steering: action.steering, followUp: action.followUp } };
@@ -156,6 +170,8 @@ export function PiDaemonApp(): ReactNode {
   const [newSessionName, setNewSessionName] = useState("");
   const [renameValue, setRenameValue] = useState("");
   const [sessionFilter, setSessionFilter] = useState("");
+  const [modelPickerRequest, setModelPickerRequest] = useState(0);
+  const [builtinPanel, setBuiltinPanel] = useState<BuiltinPanelState>();
   const [nearBottom, setNearBottom] = useState(true);
   const socketRef = useRef<WebSocket | undefined>(undefined);
   const reconnectRef = useRef<number | undefined>(undefined);
@@ -179,10 +195,15 @@ export function PiDaemonApp(): ReactNode {
     toastRef.current.add({ title: "Something went wrong", description: message, type: "error", priority: "high" });
   }, []);
 
-  const send = useCallback((command: Record<string, unknown>) => {
-    if (socketRef.current?.readyState !== WebSocket.OPEN) return;
+  const send = useCallback((command: Record<string, unknown>): boolean => {
+    if (socketRef.current?.readyState !== WebSocket.OPEN) return false;
     const envelope = { protocolVersion: 1, requestId: crypto.randomUUID(), ...command } as ClientCommand;
-    socketRef.current.send(JSON.stringify(envelope));
+    try {
+      socketRef.current.send(JSON.stringify(envelope));
+      return true;
+    } catch {
+      return false;
+    }
   }, []);
 
   useEffect(() => {
@@ -253,6 +274,47 @@ export function PiDaemonApp(): ReactNode {
           daemonUnavailableRef.current = false;
           if (message.sessionId === stateRef.current.current?.id) dispatch({ type: "queue.update", steering: message.steering, followUp: message.followUp });
           break;
+        case "extension.notification":
+          daemonUnavailableRef.current = false;
+          if (message.sessionId === stateRef.current.current?.id) {
+            toastRef.current.add({
+              title: message.level === "error" ? "Command failed" : "Pi command",
+              description: message.message,
+              ...(message.level === "error" ? { type: "error" as const, priority: "high" as const } : {}),
+            });
+          }
+          break;
+        case "command.result": {
+          daemonUnavailableRef.current = false;
+          if (message.sessionId !== stateRef.current.current?.id && message.result.kind !== "forked" && message.result.kind !== "message") break;
+          const result = message.result;
+          if (result.kind === "download" && typeof result.fileData === "string" && typeof result.fileName === "string") {
+            downloadBase64File(result.fileName, typeof result.mimeType === "string" ? result.mimeType : "application/octet-stream", result.fileData);
+            toastRef.current.add({ title: "Export complete", description: result.message || `Downloaded ${result.fileName}` });
+            break;
+          }
+          if (result.kind === "copy") {
+            const text = typeof result.text === "string" ? result.text : "";
+            if (!text) showError("No Pi messages to copy yet.");
+            else void navigator.clipboard.writeText(text).then(() => {
+              toastRef.current.add({ title: "Copied", description: "Copied the last Pi message to the clipboard." });
+            }).catch((error) => showError(error instanceof Error ? error.message : String(error)));
+            break;
+          }
+          if ((result.kind === "forked" || result.kind === "tree-navigated") && typeof result.editorText === "string") setDraft(result.editorText);
+          if (result.kind === "quit") {
+            dispatch({ type: "session.closed" });
+            setBuiltinPanel(undefined);
+          } else if (result.kind === "message" || result.kind === "forked" || result.kind === "tree-navigated") {
+            toastRef.current.add({ title: "Pi command", description: result.message || `/${message.command} completed.` });
+            setBuiltinPanel(undefined);
+          } else if (result.kind === "auth-response") {
+            // Keep the authentication dialog open while the provider continues.
+          } else {
+            setBuiltinPanel({ command: message.command, result });
+          }
+          break;
+        }
         case "error":
           if (message.code === "daemon_unavailable") {
             dispatch({ type: "socket.close" });
@@ -336,16 +398,89 @@ export function PiDaemonApp(): ReactNode {
     return state.sessions.filter((session) => [session.name, session.firstMessage, session.cwd].some((value) => value?.toLocaleLowerCase().includes(query)));
   }, [sessionFilter, state.sessions]);
 
-  const submit = () => {
-    const text = draft.trim();
+  const submit = (textOverride?: string) => {
+    const text = (textOverride ?? draft).trim();
     if (!text || !state.current) return;
+    const builtin = parseBuiltinSlashCommand(text, state.current.slashCommands || []);
+    if (builtin) {
+      if (attachments.length) {
+        showError("Remove attached images before running a built-in Pi command.");
+        return;
+      }
+      if (builtin.name === "new") {
+        setDraft("");
+        setNewSessionOpen(true);
+        return;
+      }
+      if (builtin.name === "resume") {
+        setDraft("");
+        setSidebarOpen(true);
+        return;
+      }
+      if (builtin.name === "name") {
+        if (builtin.arguments) {
+          if (!send({ type: "session.rename", sessionId: state.current.id, name: builtin.arguments })) {
+            showError("Pi Daemon is reconnecting. Try renaming the session again in a moment.");
+            return;
+          }
+        } else {
+          setRenameValue(state.current.name || "");
+          setRenameOpen(true);
+        }
+        setDraft("");
+        return;
+      }
+      if (builtin.name === "model") {
+        if (!builtin.arguments) {
+          if (!state.current.availableModels.length) {
+            showError("No models are available. Configure a provider in Pi's local terminal, then reload this session.");
+            return;
+          }
+          setDraft("");
+          setModelPickerRequest((request) => request + 1);
+          return;
+        }
+        const model = state.current.availableModels.find((candidate) => `${candidate.provider}/${candidate.id}` === builtin.arguments);
+        if (!model) {
+          showError(`Unknown model: ${builtin.arguments}`);
+          return;
+        }
+        if (!send({ type: "session.setModel", sessionId: state.current.id, provider: model.provider, modelId: model.id })) {
+          showError("Pi Daemon is reconnecting. Try changing the model again in a moment.");
+          return;
+        }
+        setDraft("");
+        return;
+      }
+      const name = builtin.name as BuiltinSlashCommandName;
+      if ((name === "import" && !builtin.arguments) || name === "share" || name === "quit") {
+        setDraft("");
+        setBuiltinPanel({ command: name, result: { kind: name === "import" ? "import" : `confirm-${name}` } });
+        return;
+      }
+      if (!send({ type: "session.command", sessionId: state.current.id, command: name, ...(builtin.arguments ? { arguments: builtin.arguments } : {}) })) {
+        showError("Pi Daemon is reconnecting. Try the command again in a moment.");
+        return;
+      }
+      setDraft("");
+      return;
+    }
     const type = state.status === "running" ? "session.steer" : "session.prompt";
-    send({
+    const sent = send({
       type,
       sessionId: state.current.id,
       text,
       attachments: attachments.map(({ id, mimeType }) => ({ id, mimeType })),
     });
+    if (!sent) {
+      showError("Pi Daemon is reconnecting. Your message was kept so you can retry.");
+      return;
+    }
+    const slashName = /^\/([^\s]+)/u.exec(text)?.[1];
+    const invokedCommand = slashName ? state.current.slashCommands.find((command) => command.name === slashName) : undefined;
+    if (invokedCommand?.source === "extension") {
+      toastRef.current.add({ title: "Pi command", description: `/${invokedCommand.name} started.` });
+    }
     for (const attachment of attachments) {
       URL.revokeObjectURL(attachment.previewUrl);
       attachmentUrlsRef.current.delete(attachment.previewUrl);
@@ -386,7 +521,10 @@ export function PiDaemonApp(): ReactNode {
     event.preventDefault();
     const cwd = newSessionCwd.trim();
     if (!cwd) return;
-    send({ type: "session.create", cwd, ...(newSessionName.trim() ? { name: newSessionName.trim() } : {}) });
+    if (!send({ type: "session.create", cwd, ...(newSessionName.trim() ? { name: newSessionName.trim() } : {}) })) {
+      showError("Pi Daemon is reconnecting. Try creating the session again in a moment.");
+      return;
+    }
     setNewSessionName("");
     setNewSessionOpen(false);
   };
@@ -394,7 +532,10 @@ export function PiDaemonApp(): ReactNode {
   const renameSession = (event: FormEvent) => {
     event.preventDefault();
     if (!state.current || !renameValue.trim()) return;
-    send({ type: "session.rename", sessionId: state.current.id, name: renameValue.trim() });
+    if (!send({ type: "session.rename", sessionId: state.current.id, name: renameValue.trim() })) {
+      showError("Pi Daemon is reconnecting. Try renaming the session again in a moment.");
+      return;
+    }
     setRenameOpen(false);
   };
 
@@ -470,6 +611,7 @@ export function PiDaemonApp(): ReactNode {
           queue={state.queue}
           draft={draft}
           attachments={attachments}
+          modelPickerRequest={modelPickerRequest}
           onDraft={setDraft}
           onUpload={upload}
           onRemoveAttachment={(id) => setAttachments((current) => current.filter((attachment) => {
@@ -529,8 +671,213 @@ export function PiDaemonApp(): ReactNode {
           {bootstrap ? <NotificationSettings publicKey={bootstrap.pushPublicKey} showError={showError} /> : <p className="mutedCopy">Preparing notification settings…</p>}
         </div>
       </AppDialog>
+
+      <BuiltinCommandDialog
+        panel={builtinPanel}
+        current={state.current}
+        onOpenChange={(open) => { if (!open) setBuiltinPanel(undefined); }}
+        onCommand={(command, payload, argumentsValue) => {
+          if (!state.current) return;
+          if (!send({
+            type: "session.command",
+            sessionId: state.current.id,
+            command,
+            ...(argumentsValue ? { arguments: argumentsValue } : {}),
+            ...(payload ? { payload } : {}),
+          })) showError("Pi Daemon is reconnecting. Try the command again in a moment.");
+        }}
+        showError={showError}
+      />
     </div>
   );
+}
+
+function BuiltinCommandDialog(props: {
+  panel: BuiltinPanelState | undefined;
+  current: SessionSnapshot | undefined;
+  onOpenChange(open: boolean): void;
+  onCommand(command: BuiltinSlashCommandName, payload?: BuiltinCommandPayload, argumentsValue?: string): void;
+  showError(message: string): void;
+}): ReactNode {
+  const panel = props.panel;
+  if (!panel) return null;
+  const { command, result } = panel;
+  const title = builtinPanelTitle(command, result.kind);
+  const description = builtinPanelDescription(command, result.kind);
+  const record = asRecord(result);
+  const settings = asRecord(record?.settings);
+  const stats = asRecord(record?.stats);
+  const models = Array.isArray(record?.models) ? record.models.map(asRecord).filter(Boolean) as Record<string, unknown>[] : [];
+  const selectedModels = new Set(Array.isArray(record?.selected) ? record.selected.map(String) : []);
+  const forkMessages = Array.isArray(record?.messages) ? record.messages.map(asRecord).filter(Boolean) as Record<string, unknown>[] : [];
+  const treeEntries = Array.isArray(record?.entries) ? record.entries.map(asRecord).filter(Boolean) as Record<string, unknown>[] : [];
+  const providers = Array.isArray(record?.providers) ? record.providers.map(asRecord).filter(Boolean) as Record<string, unknown>[] : [];
+  const credentials = Array.isArray(record?.credentials) ? record.credentials.map(asRecord).filter(Boolean) as Record<string, unknown>[] : [];
+  const authEvent = asRecord(record?.authEvent);
+  const authPrompt = asRecord(record?.prompt);
+
+  const saveSettings = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const checked = (name: string) => (form.elements.namedItem(name) as HTMLInputElement | null)?.checked ?? false;
+    const value = (name: string) => (form.elements.namedItem(name) as HTMLSelectElement | null)?.value || "all";
+    props.onCommand("settings", { values: {
+      autoCompaction: checked("autoCompaction"),
+      autoRetry: checked("autoRetry"),
+      skillCommands: checked("skillCommands"),
+      steeringMode: value("steeringMode"),
+      followUpMode: value("followUpMode"),
+    } });
+  };
+
+  const content = (() => {
+    if (result.kind === "import") {
+      return <div className="dialogForm">
+        <label className="fieldLabel" htmlFor="import-session-file">Session JSONL file</label>
+        <input id="import-session-file" className="textInput fileInput" type="file" accept=".jsonl,application/x-ndjson,application/json" onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (!file) return;
+          void file.arrayBuffer().then((buffer) => props.onCommand("import", {
+            fileName: file.name,
+            fileData: arrayBufferToBase64(buffer),
+          })).catch((error) => props.showError(error instanceof Error ? error.message : String(error)));
+        }} />
+        <p className="mutedCopy">The imported conversation is copied into Pi's session directory and opened as a resumable session.</p>
+      </div>;
+    }
+    if (result.kind === "confirm-share") {
+      return <div className="dialogForm"><p>This exports the current session and creates a secret gist using the host's signed-in GitHub CLI.</p><div className="dialogActions"><Dialog.Close className="secondaryButton">Cancel</Dialog.Close><Button className="primaryButton" onClick={() => props.onCommand("share")}>Create share link</Button></div></div>;
+    }
+    if (result.kind === "confirm-quit") {
+      return <div className="dialogForm"><p>This closes the in-memory Pi runtime. The saved session remains available through <strong>/resume</strong>.</p><div className="dialogActions"><Dialog.Close className="secondaryButton">Cancel</Dialog.Close><Button className="primaryButton dangerButton" onClick={() => props.onCommand("quit")}>Close runtime</Button></div></div>;
+    }
+    if (result.kind === "settings" && settings) {
+      return <form className="dialogForm commandSettings" onSubmit={saveSettings}>
+        <div className="commandCurrentModel"><strong>{props.current?.model?.name || props.current?.model?.id || "No model selected"}</strong><span>Thinking: {props.current?.thinking || "off"}</span></div>
+        <label className="toggleField"><input name="autoCompaction" type="checkbox" defaultChecked={Boolean(settings.autoCompaction)} /><span>Automatic context compaction</span></label>
+        <label className="toggleField"><input name="autoRetry" type="checkbox" defaultChecked={Boolean(settings.autoRetry)} /><span>Retry transient provider failures</span></label>
+        <label className="toggleField"><input name="skillCommands" type="checkbox" defaultChecked={Boolean(settings.skillCommands)} /><span>Enable /skill:* commands</span></label>
+        <label className="fieldLabel">Steering delivery<select className="textInput" name="steeringMode" defaultValue={String(settings.steeringMode || "all")}><option value="all">All at once</option><option value="one-at-a-time">One at a time</option></select></label>
+        <label className="fieldLabel">Follow-up delivery<select className="textInput" name="followUpMode" defaultValue={String(settings.followUpMode || "all")}><option value="all">All at once</option><option value="one-at-a-time">One at a time</option></select></label>
+        <div className="dialogActions"><Dialog.Close className="secondaryButton">Cancel</Dialog.Close><Button className="primaryButton" type="submit">Save settings</Button></div>
+      </form>;
+    }
+    if (result.kind === "scoped-models") {
+      return <form className="dialogForm commandChoiceList" onSubmit={(event) => {
+        event.preventDefault();
+        const modelIds = new FormData(event.currentTarget).getAll("modelId").map(String);
+        props.onCommand("scoped-models", { modelIds });
+      }}>
+        <p className="mutedCopy">Choose the models Pi cycles through. Select none to use every available model.</p>
+        <div className="commandScrollList">{models.map((model) => {
+          const id = `${String(model.provider)}/${String(model.id)}`;
+          return <label className="toggleField" key={id}><input type="checkbox" name="modelId" value={id} defaultChecked={selectedModels.has(id)} /><span><strong>{String(model.name || model.id)}</strong><small>{id}</small></span></label>;
+        })}</div>
+        <div className="dialogActions"><Dialog.Close className="secondaryButton">Cancel</Dialog.Close><Button className="primaryButton" type="submit">Save model scope</Button></div>
+      </form>;
+    }
+    if (result.kind === "session" && stats) {
+      const tokens = asRecord(stats.tokens);
+      return <div className="sessionStatsGrid">
+        {Boolean(record?.name) && <><span>Name</span><strong>{String(record?.name)}</strong></>}
+        <span>Session ID</span><code>{String(stats.sessionId || "")}</code>
+        <span>File</span><code>{String(stats.sessionFile || "In memory")}</code>
+        <span>Messages</span><strong>{String(stats.totalMessages || 0)} total · {String(stats.userMessages || 0)} user · {String(stats.assistantMessages || 0)} Pi</strong>
+        <span>Tools</span><strong>{String(stats.toolCalls || 0)} calls · {String(stats.toolResults || 0)} results</strong>
+        <span>Tokens</span><strong>{Number(tokens?.total || 0).toLocaleString()}</strong>
+        <span>Cost</span><strong>${Number(stats.cost || 0).toFixed(3)}</strong>
+      </div>;
+    }
+    if (result.kind === "markdown") return <div className="commandMarkdown"><MarkdownText text={String(record?.markdown || "No information available.")} /></div>;
+    if (result.kind === "fork") {
+      return <div className="commandScrollList">{forkMessages.length ? forkMessages.map((message) => <Button key={String(message.entryId)} className="commandListButton" onClick={() => props.onCommand("fork", { targetId: String(message.entryId) })}><strong>{truncateCommandText(String(message.text || "User message"))}</strong><small>Fork before this message</small></Button>) : <p className="mutedCopy">No user messages are available to fork.</p>}</div>;
+    }
+    if (result.kind === "tree") {
+      const leafId = String(record?.leafId || "");
+      return <div className="commandScrollList">{treeEntries.length ? treeEntries.map((entry) => <Button key={String(entry.id)} disabled={String(entry.id) === leafId} className="commandListButton" onClick={() => props.onCommand("tree", { targetId: String(entry.id) })}><strong>{truncateCommandText(String(entry.text || String(entry.type).replaceAll("_", " ")))}</strong><small>{String(entry.id) === leafId ? "Current position" : new Date(String(entry.timestamp)).toLocaleString()}</small></Button>) : <p className="mutedCopy">This session has no entries yet.</p>}</div>;
+    }
+    if (result.kind === "trust") {
+      const trusted = record?.trusted;
+      return <div className="dialogForm"><p><code>{String(record?.cwd || props.current?.cwd || "")}</code></p><p>Current saved decision: <strong>{trusted === true ? "Trusted" : trusted === false ? "Not trusted" : "Ask each time"}</strong>. Restart Pi after changing trust so project resources can be reloaded safely.</p><div className="dialogActions"><Button className="secondaryButton" onClick={() => props.onCommand("trust", { trusted: false })}>Don't trust</Button><Button className="primaryButton" onClick={() => props.onCommand("trust", { trusted: true })}>Trust project</Button></div></div>;
+    }
+    if (result.kind === "login") {
+      return <div className="commandScrollList">{providers.map((provider) => <div className="authProvider" key={String(provider.id)}><div><strong>{String(provider.name || provider.id)}</strong><small>{provider.configured ? "Configured" : "Not configured"}</small></div><div>{Boolean(provider.apiKey) && <Button className="secondaryButton" onClick={() => props.onCommand("login", { action: "login", provider: String(provider.id), authType: "api_key" })}>{String(provider.apiKeyLabel || "API key")}</Button>}{Boolean(provider.oauth) && <Button className="primaryButton" onClick={() => props.onCommand("login", { action: "login", provider: String(provider.id), authType: "oauth" })}>{String(provider.oauthLabel || "OAuth")}</Button>}</div></div>)}</div>;
+    }
+    if (result.kind === "logout") {
+      return <div className="commandScrollList">{credentials.length ? credentials.map((credential) => <Button className="commandListButton" key={String(credential.providerId)} onClick={() => props.onCommand("logout", { provider: String(credential.providerId) })}><strong>{String(credential.providerId)}</strong><small>{String(credential.type || "stored credential")}</small></Button>) : <p className="mutedCopy">No stored credentials are available to remove.</p>}</div>;
+    }
+    if (result.kind === "auth-prompt" && authPrompt && typeof record?.promptId === "string") {
+      const options = Array.isArray(authPrompt.options) ? authPrompt.options.map(asRecord).filter(Boolean) as Record<string, unknown>[] : [];
+      return <form className="dialogForm" onSubmit={(event) => {
+        event.preventDefault();
+        const value = new FormData(event.currentTarget).get("authResponse");
+        props.onCommand("login", { action: "respond", targetId: String(record.promptId), apiKey: String(value || "") });
+      }}>
+        <label className="fieldLabel" htmlFor="auth-response">{String(authPrompt.message || "Authentication response")}</label>
+        {authPrompt.type === "select" ? <select id="auth-response" className="textInput" name="authResponse" autoFocus>{options.map((option) => <option key={String(option.id)} value={String(option.id)}>{String(option.label || option.id)}</option>)}</select> : <Input id="auth-response" className="textInput" name="authResponse" type={authPrompt.type === "secret" ? "password" : "text"} placeholder={String(authPrompt.placeholder || "")} autoFocus required />}
+        <div className="dialogActions"><Button className="primaryButton" type="submit">Continue</Button></div>
+      </form>;
+    }
+    if (result.kind === "auth-event" && authEvent) {
+      const url = typeof authEvent.url === "string" ? authEvent.url : typeof authEvent.verificationUri === "string" ? authEvent.verificationUri : undefined;
+      return <div className="dialogForm"><p>{String(authEvent.instructions || authEvent.message || "Continue authentication in your provider.")}</p>{Boolean(authEvent.userCode) && <div className="authCode"><span>Device code</span><strong>{String(authEvent.userCode)}</strong></div>}{url && <a className="primaryButton linkButton" href={url} target="_blank" rel="noreferrer">Open authentication page</a>}</div>;
+    }
+    if (result.kind === "auth-error") return <div className="commandError"><strong>Authentication failed</strong><p>{String(record?.message || "Unknown authentication error")}</p></div>;
+    if (result.kind === "auth-complete") return <div className="commandSuccess"><span>✓</span><strong>{String(record?.message || "Authentication complete")}</strong></div>;
+    if (result.kind === "share") return <div className="dialogForm"><p>{String(record?.message || "Share link created")}</p>{typeof record?.shareUrl === "string" && <a className="primaryButton linkButton" href={record.shareUrl} target="_blank" rel="noreferrer">Open shared session</a>}{typeof record?.gistUrl === "string" && <a href={record.gistUrl} target="_blank" rel="noreferrer">Open secret gist</a>}</div>;
+    return <div className="commandProgress"><span className="workingPulse" /><p>{String(record?.message || `Running /${command}…`)}</p></div>;
+  })();
+
+  return <AppDialog open onOpenChange={props.onOpenChange} popupClassName="builtinCommandDialog" title={title} description={description}>{content}</AppDialog>;
+}
+
+function builtinPanelTitle(command: BuiltinSlashCommandName, kind: string): string {
+  if (kind === "confirm-share") return "Share this session";
+  if (kind === "confirm-quit") return "Close Pi runtime";
+  if (kind === "auth-prompt" || kind === "auth-event" || kind === "auth-progress") return "Provider authentication";
+  const titles: Partial<Record<BuiltinSlashCommandName, string>> = {
+    settings: "Pi settings", "scoped-models": "Scoped models", import: "Import session", session: "Session information",
+    changelog: "What's New", hotkeys: "Keyboard shortcuts", fork: "Fork session", tree: "Session tree",
+    trust: "Project trust", login: "Provider login", logout: "Provider logout", share: "Shared session",
+  };
+  return titles[command] || `/${command}`;
+}
+
+function builtinPanelDescription(command: BuiltinSlashCommandName, kind: string): string {
+  if (kind === "auth-prompt" || kind === "auth-event" || kind === "auth-progress") return "Complete the provider's sign-in flow to make its models available.";
+  const descriptions: Partial<Record<BuiltinSlashCommandName, string>> = {
+    settings: "Configure runtime behavior for this Pi session.", "scoped-models": "Control which models are used when cycling models.",
+    import: "Resume a Pi coding-agent session from a JSONL export.", session: "Usage, cost, and persistence details for the current session.",
+    fork: "Choose the user message where the new session should begin.", tree: "Move the active branch to another saved entry.",
+    trust: "Save whether project-local Pi resources may load.", login: "Add an API key or sign in with OAuth.",
+    logout: "Remove a credential stored by Pi.", share: "A private link for reviewing this conversation.",
+  };
+  return descriptions[command] || `Run Pi's /${command} command.`;
+}
+
+function truncateCommandText(value: string): string {
+  const normalized = value.replace(/\s+/gu, " ").trim();
+  return normalized.length > 140 ? `${normalized.slice(0, 137)}…` : normalized;
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let output = "";
+  const chunk = 0x8000;
+  for (let index = 0; index < bytes.length; index += chunk) output += String.fromCharCode(...bytes.subarray(index, index + chunk));
+  return btoa(output);
+}
+
+function downloadBase64File(fileName: string, mimeType: string, data: string): void {
+  const binary = atob(data);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function SessionSidebar(props: {
@@ -602,15 +949,17 @@ function Composer(props: {
   queue: { steering: readonly string[]; followUp: readonly string[] };
   draft: string;
   attachments: UploadedAttachment[];
+  modelPickerRequest: number;
   onDraft(value: string): void;
   onUpload(files: FileList | null): void;
   onRemoveAttachment(id: string): void;
-  onSubmit(): void;
+  onSubmit(textOverride?: string): void;
   onAbort(): void;
   onModel(model: { provider: string; id: string }): void;
   onThinking(thinking: ThinkingLevel): void;
 }): ReactNode {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const modelTriggerRef = useRef<HTMLButtonElement>(null);
   const [activeCommand, setActiveCommand] = useState(0);
   const hasDraft = Boolean(props.draft.trim());
   const actionMode = props.status === "aborting" ? "stopping" : props.status === "running" && !hasDraft ? "stop" : "send";
@@ -632,8 +981,16 @@ function Composer(props: {
   );
   const commandMenuOpen = Boolean(props.current && commandQuery !== undefined);
   useEffect(() => setActiveCommand(0), [commandQuery, props.current?.id]);
+  useEffect(() => {
+    if (!props.modelPickerRequest || !modelItems.length) return;
+    window.requestAnimationFrame(() => modelTriggerRef.current?.click());
+  }, [modelItems.length, props.modelPickerRequest]);
 
-  const chooseCommand = (command: SlashCommand) => {
+  const chooseCommand = (command: SlashCommand, execute: boolean) => {
+    if (command.source === "builtin" || (execute && command.source === "extension")) {
+      props.onSubmit(`/${command.name}`);
+      return;
+    }
     props.onDraft(`/${command.name} `);
     window.requestAnimationFrame(() => textareaRef.current?.focus());
   };
@@ -654,7 +1011,7 @@ function Composer(props: {
                   key={`${command.source}:${command.name}`}
                   onMouseDown={(event) => event.preventDefault()}
                   onMouseEnter={() => setActiveCommand(index)}
-                  onClick={() => chooseCommand(command)}
+                  onClick={() => chooseCommand(command, true)}
                 >
                   <span className="slashCommandName">/{highlightCommandMatch(command.name, commandQuery || "")}</span>
                   <span className="slashCommandDescription">{command.description || fallbackCommandDescription(command.source)}</span>
@@ -663,7 +1020,7 @@ function Composer(props: {
               ))}
               {!matchingCommands.length && <p className="slashCommandEmpty">No matching Pi commands.</p>}
             </div>
-            <div className="slashCommandHint"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>Tab</kbd> select</span><span><kbd>Esc</kbd> close</span></div>
+            <div className="slashCommandHint"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>Enter</kbd> run</span><span><kbd>Tab</kbd> insert</span><span><kbd>Esc</kbd> close</span></div>
           </div>
         )}
         {queuedMessages.length > 0 && <div className="messageQueue" role="list" aria-label="Queued messages">{queuedMessages.map((message) => <div className="queueMessage" role="listitem" key={message.id}><span className="queueMessageIcon" aria-hidden="true">↳</span><span className="queueMessageText">{message.text}</span><span className="queueMessageKind">{message.kind === "steer" ? "Steer" : "Queued"}</span></div>)}</div>}
@@ -681,7 +1038,7 @@ function Composer(props: {
               }
               if ((event.key === "Tab" || event.key === "Enter") && matchingCommands[activeCommand]) {
                 event.preventDefault();
-                chooseCommand(matchingCommands[activeCommand]);
+                chooseCommand(matchingCommands[activeCommand], event.key === "Enter");
                 return;
               }
               if (event.key === "Escape") {
@@ -714,7 +1071,7 @@ function Composer(props: {
                 itemToStringLabel={(item) => item.label}
               >
                 <Combobox.Label className="srOnly">Model</Combobox.Label>
-                <Combobox.Trigger className="controlButton modelControl"><ModelProviderIcon provider={selectedModel?.provider || props.current?.model?.provider} /><Combobox.Value placeholder="Choose model" /><Combobox.Icon className="selectorIcon"><ChevronIcon /></Combobox.Icon></Combobox.Trigger>
+                <Combobox.Trigger ref={modelTriggerRef} className="controlButton modelControl"><ModelProviderIcon provider={selectedModel?.provider || props.current?.model?.provider} /><Combobox.Value placeholder="Choose model" /><Combobox.Icon className="selectorIcon"><ChevronIcon /></Combobox.Icon></Combobox.Trigger>
                 <Combobox.Portal>
                   <Combobox.Positioner className="popupPositioner" side="top" sideOffset={8} align="end">
                     <Combobox.Popup className="comboboxPopup" aria-label="Choose model">
@@ -739,7 +1096,7 @@ function Composer(props: {
           <Button
             className={`composerActionButton ${actionMode === "send" ? "send" : "stop"}`}
             disabled={actionMode === "stopping" || (actionMode === "send" && (!props.current || !hasDraft))}
-            onClick={actionMode === "send" ? props.onSubmit : props.onAbort}
+            onClick={actionMode === "send" ? () => props.onSubmit() : props.onAbort}
             aria-label={actionMode === "stopping" ? "Stopping" : actionMode === "stop" ? "Stop" : actionLabel}
           >
             {actionMode === "send" ? <span aria-hidden="true">↑</span> : <span aria-hidden="true">■</span>}
@@ -754,6 +1111,22 @@ export function slashCommandQuery(draft: string): string | undefined {
   if (!draft.startsWith("/") || draft.includes("\n")) return undefined;
   const query = draft.slice(1);
   return /\s/u.test(query) ? undefined : query.toLocaleLowerCase();
+}
+
+export function parseBuiltinSlashCommand(text: string, commands: SlashCommand[]): { name: string; arguments: string } | undefined {
+  const match = /^\/([^\s]+)(?:\s+([\s\S]*))?$/u.exec(text.trim());
+  if (!match || !commands.some((command) => command.source === "builtin" && command.name === match[1])) return undefined;
+  return { name: match[1] as string, arguments: (match[2] || "").trim() };
+}
+
+export function mergeSlashCommands(commands: SlashCommand[]): SlashCommand[] {
+  const seen = new Set<string>();
+  return [...WEB_BUILTIN_SLASH_COMMANDS, ...commands].filter((command) => {
+    const key = `${command.source}:${command.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 export function filterSlashCommands(commands: SlashCommand[], query: string): SlashCommand[] {
@@ -777,12 +1150,14 @@ function highlightCommandMatch(name: string, query: string): ReactNode {
 }
 
 function commandSourceLabel(source: SlashCommand["source"]): string {
+  if (source === "builtin") return "Built-in";
   if (source === "extension") return "Extension";
   if (source === "prompt") return "Prompt";
   return "Skill";
 }
 
 function fallbackCommandDescription(source: SlashCommand["source"]): string {
+  if (source === "builtin") return "Run a built-in Pi command";
   if (source === "extension") return "Run an extension command";
   if (source === "prompt") return "Use a reusable prompt";
   return "Load skill instructions";

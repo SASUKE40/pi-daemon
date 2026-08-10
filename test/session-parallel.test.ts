@@ -129,6 +129,38 @@ describe("parallel session dispatch", () => {
     ]);
     expect(harness.createCalls.get(sessionId)).toBe(1);
   });
+
+  it("returns a session to idle when prompt throws before returning a promise", async () => {
+    const { client, harness } = await startHarness();
+    const sessionId = await createTask(client, join(root as string, "sync-failure"), "create");
+    const session = harness.session(sessionId);
+    session.promptError = new Error("Provider failed synchronously");
+
+    client.send(command({ type: "session.prompt", requestId: "failing-prompt", sessionId, text: "First attempt" }));
+    await client.waitFor((item) => item.type === "session.status" && item.sessionId === sessionId && item.status === "error" && item.message === "Provider failed synchronously");
+    const idle = await client.waitFor((item) => item.type === "session.status" && item.sessionId === sessionId && item.status === "idle");
+    if (idle.type !== "session.status") throw new Error("Expected idle status");
+
+    session.promptError = undefined;
+    client.send(command({ type: "session.prompt", requestId: "retry-prompt", sessionId, text: "Second attempt" }));
+    await client.waitFor((item) => item.type === "session.status" && item.sessionId === sessionId && item.status === "running" && item.seq > idle.seq);
+    expect(session.promptTexts).toEqual(["First attempt", "Second attempt"]);
+    session.complete("Recovered");
+    await client.waitFor((item) => item.type === "session.status" && item.sessionId === sessionId && item.status === "idle" && item.seq > idle.seq);
+  });
+
+  it("dispatches built-in slash commands through the daemon command layer", async () => {
+    const { client } = await startHarness();
+    const sessionId = await createTask(client, join(root as string, "commands"), "create");
+    client.send(command({ type: "session.command", requestId: "hotkeys", sessionId, command: "hotkeys" }));
+    await expect(client.waitFor((item) => item.type === "command.result" && item.requestId === "hotkeys")).resolves.toMatchObject({
+      type: "command.result",
+      sessionId,
+      command: "hotkeys",
+      result: { kind: "markdown", title: "Keyboard Shortcuts" },
+    });
+    expect(client.events.some((item) => item.type === "session.event")).toBe(false);
+  });
 });
 
 async function startHarness(): Promise<{ client: IpcTestClient; harness: FakeSessionHarness; push: { send: ReturnType<typeof vi.fn> } }> {
@@ -324,6 +356,7 @@ class FakeManager {
 class FakeAgentSession {
   isStreaming = false;
   thinkingLevel = "medium";
+  promptError: Error | undefined;
   readonly promptTexts: string[] = [];
   readonly steering: string[] = [];
   readonly followUps: string[] = [];
@@ -356,6 +389,7 @@ class FakeAgentSession {
 
   prompt(text: string): Promise<void> {
     this.promptTexts.push(text);
+    if (this.promptError) throw this.promptError;
     this.isStreaming = true;
     this.pending = deferred<void>();
     return this.pending.promise.finally(() => { this.isStreaming = false; });

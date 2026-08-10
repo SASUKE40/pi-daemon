@@ -6,6 +6,7 @@ export class IpcClient {
   private buffer = "";
   private reconnectTimer: NodeJS.Timeout | undefined;
   private stopped = false;
+  private connectedState = false;
   private readonly listeners = new Set<(event: ServerEvent) => void>();
   private readonly stateListeners = new Set<(connected: boolean) => void>();
 
@@ -18,13 +19,22 @@ export class IpcClient {
 
   stop(): void {
     this.stopped = true;
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-    this.socket?.destroy();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
+    const socket = this.socket;
     this.socket = undefined;
+    this.buffer = "";
+    if (this.connectedState) {
+      this.connectedState = false;
+      this.emitState(false);
+    }
+    socket?.destroy();
   }
 
   send(command: ClientCommand): void {
-    if (!this.socket?.writable) throw new Error("Session daemon is unavailable");
+    if (!this.connectedState || !this.socket?.writable) throw new Error("Session daemon is unavailable");
     this.socket.write(`${JSON.stringify(command)}\n`);
   }
 
@@ -39,7 +49,7 @@ export class IpcClient {
   }
 
   get connected(): boolean {
-    return Boolean(this.socket?.writable);
+    return this.connectedState;
   }
 
   private connect(): void {
@@ -47,14 +57,28 @@ export class IpcClient {
     const socket = createConnection(this.socketPath);
     this.socket = socket;
     socket.setEncoding("utf8");
-    socket.on("connect", () => this.emitState(true));
+    socket.on("connect", () => {
+      if (this.stopped || this.socket !== socket) {
+        socket.destroy();
+        return;
+      }
+      this.connectedState = true;
+      this.emitState(true);
+    });
     socket.on("data", (chunk: string) => this.consume(chunk));
     socket.on("error", () => undefined);
     socket.on("close", () => {
-      if (this.socket === socket) this.socket = undefined;
+      if (this.socket !== socket) return;
+      this.socket = undefined;
       this.buffer = "";
+      this.connectedState = false;
       this.emitState(false);
-      if (!this.stopped) this.reconnectTimer = setTimeout(() => this.connect(), 1_000);
+      if (!this.stopped) {
+        this.reconnectTimer = setTimeout(() => {
+          this.reconnectTimer = undefined;
+          this.connect();
+        }, 1_000);
+      }
     });
   }
 

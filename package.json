@@ -1,6 +1,6 @@
 {
   "name": "@edward40/pi-daemon",
-  "version": "0.1.25",
+  "version": "0.1.26",
   "description": "Long-running Pi coding agent with a mobile web UI secured by Tailscale Serve or Cloudflare Access",
   "author": "Edward Evans <sasuke688848@gmail.com>",
   "type": "module",
@@ -74,6 +74,7 @@
     "@types/react-dom": "19.2.4",
     "@types/web-push": "3.6.4",
     "@types/ws": "8.18.1",
+    "@vitest/coverage-v8": "^3.2.7",
     "jsdom": "26.1.0",
     "tsx": "4.20.5",
     "typescript": "5.9.2",

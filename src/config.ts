@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { DEFAULT_PORT } from "./version.js";
 import { getAppPaths } from "./paths.js";
 
@@ -47,13 +48,13 @@ export interface PiDaemonConfig {
   tailscale?: TailscaleConfig;
 }
 
-export function defaultConfig(): PiDaemonConfig {
+export function defaultConfig(env: NodeJS.ProcessEnv = process.env): PiDaemonConfig {
   return {
     schemaVersion: 1,
     listenHost: "127.0.0.1",
     port: DEFAULT_PORT,
     defaultCwd: process.cwd(),
-    agentDir: process.env.PI_CODING_AGENT_DIR || `${process.env.HOME}/.pi/agent`,
+    agentDir: env.PI_CODING_AGENT_DIR || join(env.HOME || homedir(), ".pi", "agent"),
   };
 }
 

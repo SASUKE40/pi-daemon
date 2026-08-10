@@ -67,11 +67,9 @@ export class PushService {
   }
 
   async unsubscribe(endpointValue: unknown): Promise<boolean> {
-    if (typeof endpointValue !== "string" || endpointValue.length < 1 || endpointValue.length > MAX_ENDPOINT_LENGTH) {
-      throw new Error("A valid subscription endpoint is required");
-    }
+    const endpoint = normalizePushEndpoint(endpointValue, "A valid subscription endpoint is required");
     try {
-      await unlink(this.subscriptionPath(endpointValue));
+      await unlink(this.subscriptionPath(endpoint));
       return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
@@ -174,16 +172,7 @@ export class PushSubscriptionLimitError extends Error {}
 export function validatePushSubscription(value: unknown): PushSubscription {
   if (!value || typeof value !== "object") throw new Error("Invalid push subscription");
   const item = value as Record<string, unknown>;
-  if (typeof item.endpoint !== "string" || item.endpoint.length < 1 || item.endpoint.length > MAX_ENDPOINT_LENGTH) {
-    throw new Error("Invalid push subscription endpoint");
-  }
-  let endpoint: URL;
-  try {
-    endpoint = new URL(item.endpoint);
-  } catch {
-    throw new Error("Invalid push subscription endpoint");
-  }
-  if (endpoint.protocol !== "https:") throw new Error("Push subscription endpoint must use HTTPS");
+  const endpoint = normalizePushEndpoint(item.endpoint, "Invalid push subscription endpoint");
   if (!item.keys || typeof item.keys !== "object") throw new Error("Push subscription keys are required");
   const keys = item.keys as Record<string, unknown>;
   const p256dh = validateSubscriptionKey(keys.p256dh, "p256dh");
@@ -193,10 +182,22 @@ export function validatePushSubscription(value: unknown): PushSubscription {
     throw new Error("Invalid push subscription expirationTime");
   }
   return {
-    endpoint: endpoint.toString(),
+    endpoint,
     ...(expirationTime === null || typeof expirationTime === "number" ? { expirationTime } : {}),
     keys: { p256dh, auth },
   };
+}
+
+function normalizePushEndpoint(value: unknown, invalidMessage: string): string {
+  if (typeof value !== "string" || value.length < 1 || value.length > MAX_ENDPOINT_LENGTH) throw new Error(invalidMessage);
+  let endpoint: URL;
+  try {
+    endpoint = new URL(value);
+  } catch {
+    throw new Error(invalidMessage);
+  }
+  if (endpoint.protocol !== "https:") throw new Error("Push subscription endpoint must use HTTPS");
+  return endpoint.toString();
 }
 
 function validateSubscriptionKey(value: unknown, name: string): string {

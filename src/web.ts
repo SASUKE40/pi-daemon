@@ -94,26 +94,46 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
 
   app.post("/api/attachments", async (request, reply) => {
     const uploaded: Array<{ id: string; name: string; mimeType: string; size: number }> = [];
-    for await (const part of request.files()) {
-      const mimeType = part.mimetype as ImageAttachment["mimeType"];
-      if (!ACCEPTED_IMAGES.has(mimeType)) {
-        await part.toBuffer().catch(() => undefined);
-        return reply.code(415).send({ error: "Only PNG, JPEG, WebP, and GIF images are accepted" });
+    const discardUploaded = () => {
+      for (const item of uploaded) attachments.delete(item.id);
+    };
+    try {
+      for await (const part of request.files()) {
+        const mimeType = part.mimetype as ImageAttachment["mimeType"];
+        if (!ACCEPTED_IMAGES.has(mimeType)) {
+          await part.toBuffer().catch(() => undefined);
+          discardUploaded();
+          return reply.code(415).send({ error: "Only PNG, JPEG, WebP, and GIF images are accepted" });
+        }
+        let buffer: Buffer;
+        try {
+          buffer = await part.toBuffer();
+        } catch {
+          discardUploaded();
+          return reply.code(413).send({ error: "Image exceeds 10 MB" });
+        }
+        if (part.file.truncated || buffer.length > MAX_ATTACHMENT_BYTES) {
+          discardUploaded();
+          return reply.code(413).send({ error: "Image exceeds 10 MB" });
+        }
+        if (!matchesImageSignature(buffer, mimeType)) {
+          discardUploaded();
+          return reply.code(415).send({ error: "Uploaded file does not match its image type" });
+        }
+        const id = randomUUID();
+        attachments.set(id, {
+          attachment: { id, mimeType, data: buffer.toString("base64"), name: part.filename },
+          expires: Date.now() + 15 * 60_000,
+        });
+        uploaded.push({ id, name: part.filename, mimeType, size: buffer.length });
       }
-      let buffer: Buffer;
-      try {
-        buffer = await part.toBuffer();
-      } catch {
-        return reply.code(413).send({ error: "Image exceeds 10 MB" });
+    } catch (error) {
+      discardUploaded();
+      const code = (error as { code?: string }).code;
+      if (code === "FST_FILES_LIMIT" || code === "FST_REQ_FILE_TOO_LARGE") {
+        return reply.code(413).send({ error: code === "FST_FILES_LIMIT" ? "At most 4 images can be uploaded" : "Image exceeds 10 MB" });
       }
-      if (part.file.truncated || buffer.length > MAX_ATTACHMENT_BYTES) return reply.code(413).send({ error: "Image exceeds 10 MB" });
-      if (!matchesImageSignature(buffer, mimeType)) return reply.code(415).send({ error: "Uploaded file does not match its image type" });
-      const id = randomUUID();
-      attachments.set(id, {
-        attachment: { id, mimeType, data: buffer.toString("base64"), name: part.filename },
-        expires: Date.now() + 15 * 60_000,
-      });
-      uploaded.push({ id, name: part.filename, mimeType, size: buffer.length });
+      throw error;
     }
     return { attachments: uploaded };
   });
@@ -142,7 +162,9 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
         return;
       }
       try {
-        ipc.send(resolveAttachments(command, attachments));
+        const resolved = resolveAttachments(command, attachments);
+        ipc.send(resolved.command);
+        for (const id of resolved.consumedIds) attachments.delete(id);
       } catch (error) {
         socket.send(JSON.stringify(event({ type: "error", code: "daemon_unavailable", message: error instanceof Error ? error.message : String(error) })));
       }
@@ -175,8 +197,7 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
   }, 60_000);
   cleanup.unref();
 
-  await app.listen({ host: config.listenHost, port: config.port });
-  const address = `http://${config.listenHost}:${config.port}`;
+  const address = await app.listen({ host: config.listenHost, port: config.port });
   log.info("web server listening", { address });
   return {
     address,
@@ -204,16 +225,18 @@ async function authorize(request: FastifyRequest, reply: FastifyReply, authorize
   }
 }
 
-function resolveAttachments(command: ClientCommand, pending: Map<string, PendingAttachment>): ClientCommand {
-  if (!("attachments" in command) || !command.attachments?.length) return command;
+function resolveAttachments(command: ClientCommand, pending: Map<string, PendingAttachment>): { command: ClientCommand; consumedIds: string[] } {
+  if (!("attachments" in command) || !command.attachments?.length) return { command, consumedIds: [] };
+  const consumedIds = new Set<string>();
   const resolved = command.attachments.map((item) => {
     if (!item.id) throw new Error("Attachment id is required");
+    if (consumedIds.has(item.id)) throw new Error(`Attachment is duplicated: ${item.id}`);
     const found = pending.get(item.id);
     if (!found || found.expires < Date.now()) throw new Error(`Attachment expired or missing: ${item.id}`);
-    pending.delete(item.id);
+    consumedIds.add(item.id);
     return found.attachment;
   });
-  return { ...command, attachments: resolved };
+  return { command: { ...command, attachments: resolved }, consumedIds: [...consumedIds] };
 }
 
 function broadcast(sockets: Set<WebSocket>, serverEvent: ServerEvent): void {

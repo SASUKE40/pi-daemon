@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
-import { appReducer, decodeApplicationServerKey, filterSlashCommands, slashCommandQuery } from "../web/app.tsx";
+import { appReducer, decodeApplicationServerKey, filterSlashCommands, mergeSlashCommands, parseBuiltinSlashCommand, slashCommandQuery } from "../web/app.tsx";
 
 describe("React web state", () => {
   it("replaces live assistant output with the finalized message", () => {
@@ -26,5 +26,25 @@ describe("React web state", () => {
     expect(slashCommandQuery("/review ")).toBeUndefined();
     expect(slashCommandQuery("message /review")).toBeUndefined();
     expect(filterSlashCommands(commands, "rev").map((command) => command.name)).toEqual(["review", "skill:inspect"]);
+  });
+
+  it("recognizes only advertised built-in slash commands", () => {
+    const commands = [
+      { name: "new", description: "Start a new session", source: "builtin" as const },
+      { name: "review", description: "Review changes", source: "extension" as const },
+    ];
+    expect(parseBuiltinSlashCommand("/new", commands)).toEqual({ name: "new", arguments: "" });
+    expect(parseBuiltinSlashCommand("/new  now ", commands)).toEqual({ name: "new", arguments: "now" });
+    expect(parseBuiltinSlashCommand("/review", commands)).toBeUndefined();
+    expect(parseBuiltinSlashCommand("/missing", commands)).toBeUndefined();
+  });
+
+  it("adds missing built-ins and deduplicates built-ins already sent by the daemon", () => {
+    const commands = mergeSlashCommands([
+      { name: "model", description: "Select model", source: "builtin" },
+      { name: "deploy", description: "Deploy", source: "extension" },
+    ]);
+    expect(commands.filter((command) => command.source === "builtin" && command.name === "model")).toHaveLength(1);
+    expect(commands.at(-1)).toEqual({ name: "deploy", description: "Deploy", source: "extension" });
   });
 });

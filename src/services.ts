@@ -28,14 +28,25 @@ export function currentServiceCommands(cloudflared?: string): ServiceCommands {
 
 export function renderSystemdServices(commands: ServiceCommands, includeCloudflared = Boolean(commands.cloudflared)): Record<string, string> {
   const paths = getAppPaths();
-  const common = `[Unit]\nAfter=graphical-session.target\nPartOf=graphical-session.target\n\n[Service]\nRestart=on-failure\nRestartSec=2\nEnvironmentFile=-${escapeSystemd(join(paths.configDir, "desktop.env"))}\n`;
   const services: Record<string, string> = {
-    "pi-daemon-sessiond.service": `${common}ExecStart=${escapeSystemd(commands.node)} ${escapeSystemd(commands.sessiondScript)}\n\n[Install]\nWantedBy=graphical-session.target\n`,
-    "pi-daemon-web.service": `${common}After=pi-daemon-sessiond.service\nExecStart=${escapeSystemd(commands.node)} ${escapeSystemd(commands.webScript)}\n\n[Install]\nWantedBy=graphical-session.target\n`,
+    "pi-daemon-sessiond.service": renderSystemdService(
+      [],
+      `${escapeSystemd(commands.node)} ${escapeSystemd(commands.sessiondScript)}`,
+      join(paths.configDir, "desktop.env"),
+    ),
+    "pi-daemon-web.service": renderSystemdService(
+      ["pi-daemon-sessiond.service"],
+      `${escapeSystemd(commands.node)} ${escapeSystemd(commands.webScript)}`,
+      join(paths.configDir, "desktop.env"),
+    ),
   };
   if (includeCloudflared) {
     if (!commands.cloudflared) throw new Error("cloudflared command is required for the Cloudflare relay");
-    services["pi-daemon-cloudflared.service"] = `${common}After=pi-daemon-web.service network-online.target\nExecStart=${escapeSystemd(commands.cloudflared)} tunnel run --token-file ${escapeSystemd(paths.tunnelTokenFile)}\n\n[Install]\nWantedBy=graphical-session.target\n`;
+    services["pi-daemon-cloudflared.service"] = renderSystemdService(
+      ["pi-daemon-web.service", "network-online.target"],
+      `${escapeSystemd(commands.cloudflared)} tunnel run --token-file ${escapeSystemd(paths.tunnelTokenFile)}`,
+      join(paths.configDir, "desktop.env"),
+    );
   }
   return services;
 }
@@ -152,6 +163,11 @@ async function writeDesktopEnvironment(): Promise<void> {
 function renderPlist(label: string, program: string, args: string[], logFile: string): string {
   const argumentXml = [program, ...args].map((item) => `      <string>${escapeXml(item)}</string>`).join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">\n<dict>\n  <key>Label</key><string>${escapeXml(label)}</string>\n  <key>ProgramArguments</key>\n  <array>\n${argumentXml}\n  </array>\n  <key>RunAtLoad</key><true/>\n  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n  <key>ProcessType</key><string>Interactive</string>\n  <key>StandardOutPath</key><string>${escapeXml(logFile)}</string>\n  <key>StandardErrorPath</key><string>${escapeXml(logFile)}</string>\n</dict>\n</plist>\n`;
+}
+
+function renderSystemdService(after: string[], execStart: string, environmentFile: string): string {
+  const dependencies = ["graphical-session.target", ...after].join(" ");
+  return `[Unit]\nAfter=${dependencies}\nPartOf=graphical-session.target\n\n[Service]\nRestart=on-failure\nRestartSec=2\nEnvironmentFile=-${escapeSystemd(environmentFile)}\nExecStart=${execStart}\n\n[Install]\nWantedBy=graphical-session.target\n`;
 }
 
 function escapeXml(value: string): string {

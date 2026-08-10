@@ -1,5 +1,7 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { activeRelay, publicHostname, validateConfig, type PiDaemonConfig } from "../src/config.js";
+import { activeRelay, defaultConfig, publicHostname, validateConfig, type PiDaemonConfig } from "../src/config.js";
 
 const base: PiDaemonConfig = {
   schemaVersion: 1,
@@ -8,6 +10,20 @@ const base: PiDaemonConfig = {
   defaultCwd: "/tmp",
   agentDir: "/tmp/agent",
 };
+
+describe("defaultConfig", () => {
+  it("falls back to the operating-system home when HOME is absent", () => {
+    const config = defaultConfig({});
+
+    expect(config.agentDir).toBe(join(homedir(), ".pi", "agent"));
+    expect(config.agentDir).not.toContain("undefined");
+  });
+
+  it("honors HOME and the explicit Pi agent directory override", () => {
+    expect(defaultConfig({ HOME: "/users/test" }).agentDir).toBe(join("/users/test", ".pi", "agent"));
+    expect(defaultConfig({ HOME: "/users/test", PI_CODING_AGENT_DIR: "/opt/pi-agent" }).agentDir).toBe("/opt/pi-agent");
+  });
+});
 
 describe("relay configuration", () => {
   it("keeps pre-relay Cloudflare configurations compatible", () => {

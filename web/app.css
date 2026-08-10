@@ -558,6 +558,40 @@ button:disabled { cursor: default; }
 .toastDescription { margin-top: 3px; color: var(--toast-copy); font-size: 11px; line-height: 1.4; }
 .toastClose { display: grid; flex: 0 0 44px; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 10px; color: var(--toast-close); background: #ffffff0a; }
 
+.builtinCommandDialog { width: min(680px, calc(100vw - 24px)); max-height: min(820px, calc(100vh - 24px)); overflow: hidden; }
+.builtinCommandDialog .dialogDescription { margin-bottom: 16px; }
+.commandScrollList, .commandMarkdown { max-height: min(560px, 62vh); overflow: auto; display: grid; gap: 8px; padding-right: 4px; }
+.commandMarkdown { display: block; padding: 4px 10px 4px 2px; }
+.commandListButton { width: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 5px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); text-align: left; }
+.commandListButton:hover:not(:disabled) { border-color: var(--accent); background: var(--surface-hover); }
+.commandListButton:disabled { opacity: .58; }
+.commandListButton strong { font-size: 13px; line-height: 1.45; }
+.commandListButton small, .toggleField small, .authProvider small { color: var(--muted); font-size: 11px; }
+.toggleField { display: flex; align-items: flex-start; gap: 11px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); color: var(--text); }
+.toggleField input { margin-top: 2px; accent-color: var(--accent); }
+.toggleField span { display: grid; gap: 3px; }
+.commandCurrentModel { display: flex; justify-content: space-between; gap: 16px; padding: 12px 14px; border-radius: 10px; background: var(--surface); }
+.commandCurrentModel span { color: var(--muted); }
+.sessionStatsGrid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 10px 18px; max-height: 62vh; overflow: auto; }
+.sessionStatsGrid > span { color: var(--muted); }
+.sessionStatsGrid code, .sessionStatsGrid strong { min-width: 0; overflow-wrap: anywhere; }
+.authProvider { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; }
+.authProvider > div { display: flex; gap: 8px; align-items: center; }
+.authProvider > div:first-child { display: grid; gap: 3px; }
+.authProvider .primaryButton, .authProvider .secondaryButton { padding: 8px 10px; font-size: 12px; }
+.authCode { display: grid; gap: 6px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; text-align: center; }
+.authCode span { color: var(--muted); }
+.authCode strong { font: 700 24px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; }
+.linkButton { display: inline-flex; justify-content: center; text-decoration: none; }
+.commandProgress, .commandSuccess, .commandError { display: flex; align-items: center; gap: 12px; padding: 18px; border-radius: 12px; background: var(--surface); }
+.commandError { display: grid; gap: 6px; color: var(--danger); }
+.commandError p { margin: 0; color: var(--text); }
+.commandSuccess span { color: var(--success); font-size: 22px; }
+.workingPulse { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); animation: commandPulse 1.2s ease-out infinite; }
+.dangerButton { background: var(--danger); border-color: var(--danger); }
+.fileInput { height: auto; padding: 12px; }
+@keyframes commandPulse { 70% { box-shadow: 0 0 0 10px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+
 @media (max-width: 800px), (max-width: 950px) and (max-height: 600px) {
   .appShell { grid-template-columns: minmax(0, 1fr); }
   .sessionRail { display: none; }

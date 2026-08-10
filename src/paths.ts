@@ -17,7 +17,7 @@ export interface AppPaths {
 }
 
 export function getAppPaths(env: NodeJS.ProcessEnv = process.env): AppPaths {
-  const userHome = env.PI_DAEMON_HOME || homedir();
+  const userHome = env.PI_DAEMON_HOME || env.HOME || homedir();
   const configDir = env.PI_DAEMON_CONFIG_DIR || join(env.XDG_CONFIG_HOME || join(userHome, ".config"), "pi-daemon");
   const dataDir = env.PI_DAEMON_DATA_DIR || join(env.XDG_DATA_HOME || join(userHome, ".local", "share"), "pi-daemon");
   const runtimeBase = env.XDG_RUNTIME_DIR || join(dataDir, "run");

@@ -4,6 +4,7 @@ import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Toast } from "@base-ui/react/toast";
 import { Tooltip } from "@base-ui/react/tooltip";
+import { WEB_BUILTIN_SLASH_COMMANDS } from "../src/slash-commands.js";
 import { InstallGuidance, installTouchZoomGuard, modelProviderKind, NotificationSettings, PiDaemonApp, ToastViewport } from "../web/app.js";
 
 class FakeWebSocket {
@@ -136,6 +137,7 @@ describe("PiDaemonApp", () => {
             { provider: "openai", id: "gpt-test", name: "Test model" },
             { provider: "anthropic", id: "claude-test", name: "Claude test" },
           ],
+          slashCommands: [{ name: "model", description: "Select model", source: "builtin" }],
         },
       });
     });
@@ -159,6 +161,11 @@ describe("PiDaemonApp", () => {
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.setModel", sessionId: "session-1", provider: "anthropic", modelId: "claude-test" }));
 
     const textarea = screen.getByRole("textbox", { name: "Message Pi" });
+    await user.type(textarea, "/");
+    await user.click(await screen.findByRole("option", { name: /\/model.*Select model.*Built-in/ }));
+    expect(await screen.findByRole("option", { name: /Test model/ })).toBeTruthy();
+    await user.keyboard("{Escape}");
+
     await user.type(textarea, "Run the tests");
     fireEvent.keyDown(textarea, { key: "Enter" });
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.prompt", sessionId: "session-1", text: "Run the tests" }));
@@ -330,7 +337,8 @@ describe("PiDaemonApp", () => {
     const textarea = screen.getByRole("textbox", { name: "Message Pi" });
     await user.type(textarea, "/");
     const menu = await screen.findByRole("listbox", { name: "Slash commands" });
-    expect(within(menu).getAllByRole("option")).toHaveLength(3);
+    expect(within(menu).getAllByRole("option")).toHaveLength(WEB_BUILTIN_SLASH_COMMANDS.length + 3);
+    expect(within(menu).getByRole("option", { name: /\/model.*Select model.*Built-in/ })).toBeTruthy();
     expect(within(menu).getByRole("option", { name: /\/deploy.*Deploy this project.*Extension/ })).toBeTruthy();
 
     await user.type(textarea, "fix");
@@ -346,6 +354,44 @@ describe("PiDaemonApp", () => {
       sessionId: "command-session",
       text: "/fix-tests now",
     }));
+
+    await user.type(textarea, "/dep");
+    await user.click(await screen.findByRole("option", { name: /Deploy this project.*Extension/ }));
+    expect(commands(socket)).toContainEqual(expect.objectContaining({
+      type: "session.prompt",
+      sessionId: "command-session",
+      text: "/deploy",
+    }));
+    expect(await screen.findByText("/deploy started.")).toBeTruthy();
+
+    await act(async () => socket?.emit({
+      type: "extension.notification",
+      protocolVersion: 1,
+      sessionId: "command-session",
+      level: "info",
+      message: "Command completed",
+    }));
+    expect(await screen.findByText("Command completed")).toBeTruthy();
+
+    await user.type(textarea, "/sett");
+    await user.click(await screen.findByRole("option", { name: /Open settings menu.*Built-in/ }));
+    expect(commands(socket)).toContainEqual(expect.objectContaining({
+      type: "session.command",
+      sessionId: "command-session",
+      command: "settings",
+    }));
+    await act(async () => socket?.emit({
+      type: "command.result",
+      protocolVersion: 1,
+      requestId: "settings-result",
+      sessionId: "command-session",
+      command: "settings",
+      result: {
+        kind: "settings",
+        settings: { autoCompaction: true, autoRetry: true, skillCommands: true, steeringMode: "all", followUpMode: "all" },
+      },
+    }));
+    expect(await screen.findByRole("heading", { name: "Pi settings" })).toBeTruthy();
   });
 
   it("renders consecutive persisted tool calls as a compact expandable activity log", async () => {

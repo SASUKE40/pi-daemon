@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getAppPaths } from "../src/paths.js";
@@ -74,6 +74,42 @@ describe("PushService", () => {
     expect(await service.send({ sessionId: "s", outcome: "failed", body: "Failed" }, "https://localhost")).toEqual({ sent: 0, removed: 0, failed: 1 });
     expect(attempts.get("https://push.example.test/expired")).toBe(1);
     expect(attempts.get("https://push.example.test/retry")).toBe(2);
+  });
+
+  it("canonicalizes an endpoint consistently when subscribing and unsubscribing", async () => {
+    const { paths } = await testPaths();
+    const service = new PushService(paths);
+    const endpoint = "https://push.example.test";
+
+    const saved = await service.subscribe({ ...subscription("canonical"), endpoint });
+
+    expect(saved.endpoint).toBe(`${endpoint}/`);
+    await expect(service.unsubscribe(endpoint)).resolves.toBe(true);
+    await expect(service.unsubscribe(endpoint)).resolves.toBe(false);
+  });
+
+  it("returns an empty result without generating VAPID keys when no subscriptions exist", async () => {
+    const { paths } = await testPaths();
+    const sender = vi.fn<PushSender>();
+    const service = new PushService(paths, sender);
+
+    await expect(service.send({ sessionId: "s", outcome: "completed", body: "Done" }, "https://localhost"))
+      .resolves.toEqual({ sent: 0, removed: 0, failed: 0 });
+    expect(sender).not.toHaveBeenCalled();
+    await expect(stat(paths.pushVapidFile)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("removes invalid stored subscription JSON before delivery", async () => {
+    const { paths } = await testPaths();
+    await mkdir(paths.pushSubscriptionsDir, { recursive: true });
+    await writeFile(join(paths.pushSubscriptionsDir, "invalid.json"), "{not-json", "utf8");
+    const sender = vi.fn<PushSender>();
+    const service = new PushService(paths, sender);
+
+    await expect(service.send({ sessionId: "s", outcome: "completed", body: "Done" }, "https://localhost"))
+      .resolves.toEqual({ sent: 0, removed: 0, failed: 0 });
+    expect(sender).not.toHaveBeenCalled();
+    expect(await readdir(paths.pushSubscriptionsDir)).toEqual([]);
   });
 });
 

@@ -39,7 +39,7 @@ Mobile PWA ── Cloudflare Access/Tunnel ─┘             │ mode-0600 Unix
 
 Closing the browser or restarting the web gateway does not stop a Pi run. Restarting the session daemon or rebooting necessarily terminates in-flight model/tool calls, but each append-only session remains resumable. Multiple sessions can run in parallel; each individual session still accepts only one active run at a time.
 
-Type `/` at the start of the web composer to discover every command loaded for the current Pi session. The menu includes extension commands, reusable prompt templates, and enabled `/skill:*` commands, supports keyboard filtering and selection, and invokes commands through Pi's normal command expansion path. Terminal-only interactive commands are not shown because they require Pi's local TUI rather than the agent session API.
+Type `/` at the start of the web composer to discover Pi's complete public built-in command set together with every extension command, reusable prompt template, and enabled `/skill:*` command loaded for the current session. Built-ins that normally open terminal selectors have web dialogs or daemon-backed equivalents, including model scoping, export/import, session statistics, fork/tree navigation, project trust, provider login/logout, compaction, reload, sharing, and runtime close. Extension, prompt-template, and skill commands continue to run through Pi's normal command expansion path.
 
 On macOS the components run as LaunchAgents; on Linux they run as systemd user services. The release is web-only and does not ship Electron or desktop-control tooling.
 
