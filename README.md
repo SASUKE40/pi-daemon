@@ -21,7 +21,7 @@ Prerequisites:
 - For the simplest private setup: Tailscale installed and signed in on the host and mobile device
 - Or, for a public hostname: a Cloudflare account with a managed DNS zone and access to the inbox for the allowed email address
 
-The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `24.19.0` LTS, Pi `0.84.1`, and cloudflared `2026.7.3`. Before installing, it checks for compatible Node.js/npm, Pi, and Pi Daemon commands and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root.
+The wizard installs the checksummed Pi Daemon web package from the GitHub release, Node.js `24.19.0` LTS, and Pi `0.84.1`. If you choose Cloudflare Tunnel, it then installs the checksummed `cloudflared` `2026.7.3` connector; Tailscale setups do not download it. Before installing, the wizard checks for compatible Node.js/npm, Pi, and Pi Daemon commands, plus an available cloudflared command when needed, and reuses each one it finds instead of reinstalling it; when Node.js is missing or too old, it provides a managed runtime without root.
 
 The setup wizard offers two relay choices, with Cloudflare Tunnel first and selected by default for a new setup. Tailscale Serve remains available for private tailnet access and needs no API token. Cloudflare setup opens a browser consent link and displays a QR code, so a headless board can be authorized from another device without creating or pasting an API token. The CLI uses Authorization Code with PKCE, provisions the resources locally, and revokes the temporary access token when setup finishes. Saved reinstall choices contain resource IDs and user selections, not the OAuth authorization. The tunnel connector token is saved separately in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
 
@@ -64,11 +64,11 @@ Choose Cloudflare when Pi Daemon needs a public hostname without opening an inbo
 
 ### Setup
 
-1. Run the installer, or rerun `pi-daemon setup`, and choose **Cloudflare Tunnel**.
+1. Run the installer, or rerun `pi-daemon setup`, and choose **Cloudflare Tunnel**. The wizard installs `cloudflared` now if it is not already available.
 2. Open the displayed authorization link in any browser or scan its QR code from another device. Sign in to Cloudflare, review the requested permissions, and authorize Pi Daemon. This works even when setup is running on a headless board.
 3. Select the Cloudflare account and DNS zone when more than one is available.
 4. Accept the default `pi.<zone>` hostname or enter another unused hostname in that zone, then enter the one exact email address allowed to use Pi Daemon.
-5. Choose whether to remember the non-secret setup choices for a future reinstall. The wizard then provisions the Cloudflare resources and installs a dedicated user-level `cloudflared` connector.
+5. Choose whether to remember the non-secret setup choices for a future reinstall. The wizard then provisions the Cloudflare resources and installs dedicated user-level services.
 6. Open the displayed mobile URL, enter the allowed email address, and use the One-time PIN sent by Cloudflare.
 
 The wizard creates or validates:

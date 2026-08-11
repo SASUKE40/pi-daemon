@@ -11,6 +11,8 @@ describe("release contract", () => {
     const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
     const installer = await readFile(join(root, "installer", "install.sh"), "utf8");
     const versionSource = await readFile(join(root, "src", "version.ts"), "utf8");
+    const cloudflaredInstaller = await readFile(join(root, "src", "cloudflared-install.ts"), "utf8");
+    const cli = await readFile(join(root, "src", "cli.ts"), "utf8");
     const workflow = await readFile(join(root, ".github", "workflows", "release.yml"), "utf8");
 
     expect(pkg.dependencies["@earendil-works/pi-coding-agent"]).toBe(manifest.pi);
@@ -19,13 +21,25 @@ describe("release contract", () => {
     expect(installer).toContain(`VERSION="\${PI_DAEMON_VERSION:-${pkg.version}}"`);
     expect(installer).toContain(`NODE_VERSION="${manifest.node.version}"`);
     expect(installer).toContain(`PI_VERSION="${manifest.pi}"`);
-    expect(installer).toContain(`CLOUDFLARED_VERSION="${manifest.cloudflared.version}"`);
+    expect(versionSource).toContain(`CLOUDFLARED_VERSION = "${manifest.cloudflared.version}"`);
     expect(installer).toContain(`DAEMON_ASSET="edward40-pi-daemon-\${VERSION}.tgz"`);
     expect(installer).toContain('NPM_CONFIG_LOGLEVEL="error"');
     expect(installer).toContain('NPM_CONFIG_PROGRESS="false"');
     expect(installer).toContain('"$SELECTED_PI" install npm:@edward40/pi-computer-use');
     expect(installer).toContain("setup --from-installer </dev/tty >/dev/tty");
+    expect(installer).not.toContain("PI_DAEMON_CLOUDFLARED");
+    expect(installer).not.toContain("Installing cloudflared");
+    const relaySelection = cli.indexOf("const relay = await selectRelay(prompt, current, memo)");
+    const cloudflareBranch = cli.indexOf('if (relay === "cloudflare")', relaySelection);
+    const cloudflaredInstall = cli.indexOf("const cloudflared = await findOrInstallCloudflared(prompt)", cloudflareBranch);
+    expect(relaySelection).toBeGreaterThan(-1);
+    expect(cloudflareBranch).toBeGreaterThan(relaySelection);
+    expect(cloudflaredInstall).toBeGreaterThan(cloudflareBranch);
     for (const asset of Object.values(manifest.node.assets)) expect(workflow).toContain(String(asset));
+    for (const asset of Object.values(manifest.cloudflared.assets)) {
+      expect(workflow).toContain(String(asset));
+      expect(cloudflaredInstaller).toContain(String(asset));
+    }
   });
 
   it("builds a self-contained web-only release", async () => {

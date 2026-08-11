@@ -17,6 +17,7 @@ import {
   type ProvisionResult,
 } from "./cloudflare.js";
 import { authorizeCloudflare, cloudflareOAuthConfig } from "./cloudflare-oauth.js";
+import { installCloudflared, isExecutable } from "./cloudflared-install.js";
 import { activeRelay, defaultConfig, loadConfig, publicHostname as configuredHostname, saveConfig, type PiDaemonConfig, type RelayKind, type TailscaleConfig } from "./config.js";
 import { getAppPaths } from "./paths.js";
 import { loadSetupMemo, removeRuntimeConfigPreservingSetupMemo, saveSetupMemo, type SetupMemo } from "./setup-memo.js";
@@ -77,6 +78,7 @@ async function setup(fromInstaller = false): Promise<void> {
     let rememberSetup: boolean;
 
     if (relay === "cloudflare") {
+      const cloudflared = await findOrInstallCloudflared(prompt);
       if (await exists(paths.tunnelTokenFile) && await prompt.confirm("Has the existing Cloudflare connector token been exposed since it was last rotated", false)) {
         throw new Error("Rotate the exposed connector token in Cloudflare, then run setup again");
       }
@@ -128,7 +130,6 @@ async function setup(fromInstaller = false): Promise<void> {
         cloudflare: provisioned.config,
         ...(previousTailscale ? { tailscale: previousTailscale } : {}),
       });
-      const cloudflared = await findCloudflared();
       const connectorCount = await runningCloudflaredCount();
       if (connectorCount > 0) prompt.print(`Detected ${connectorCount} existing cloudflared process(es); they will not be modified.`);
       await installUserServices(config, currentServiceCommands(cloudflared));
@@ -528,15 +529,19 @@ async function questionValidated(prompt: TerminalPrompter, label: string, defaul
   }
 }
 
-async function findCloudflared(): Promise<string> {
+async function findOrInstallCloudflared(prompt: TerminalPrompter): Promise<string> {
   const selected = process.env.PI_DAEMON_CLOUDFLARED || await localCloudflared() || await findExecutable("cloudflared");
-  if (!selected) throw new Error("cloudflared is missing. Re-run the one-line installer.");
-  return selected;
+  if (selected) {
+    prompt.print(`Found cloudflared at ${selected}; skipping cloudflared installation.`);
+    return selected;
+  }
+  prompt.print(`Installing cloudflared ${CLOUDFLARED_VERSION}…`);
+  return installCloudflared();
 }
 
 async function localCloudflared(): Promise<string | undefined> {
   const target = join(getAppPaths().binDir, "cloudflared");
-  return await exists(target) ? target : undefined;
+  return await isExecutable(target) ? target : undefined;
 }
 
 async function findExecutable(name: string): Promise<string | undefined> {

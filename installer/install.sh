@@ -1,17 +1,15 @@
 #!/bin/sh
 set -eu
 
-VERSION="${PI_DAEMON_VERSION:-0.1.27}"
+VERSION="${PI_DAEMON_VERSION:-0.1.28}"
 NODE_VERSION="24.19.0"
 PI_VERSION="0.84.1"
-CLOUDFLARED_VERSION="2026.7.3"
 DAEMON_ASSET="edward40-pi-daemon-${VERSION}.tgz"
 RELEASE_BASE="https://github.com/SASUKE40/pi-daemon/releases/download/v${VERSION}"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/pi-daemon"
 NODE_LINK="$DATA_DIR/node"
 PREFIX="$DATA_DIR/npm"
 BIN_DIR="$HOME/.local/bin"
-TOOLS_DIR="$DATA_DIR/bin"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/pi-daemon-install.XXXXXX")"
 
 cleanup() {
@@ -30,10 +28,10 @@ command -v tar >/dev/null 2>&1 || fail "tar is required"
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 case "$OS/$ARCH" in
-  Darwin/arm64) PLATFORM="darwin-arm64"; NODE_ASSET="node-v${NODE_VERSION}-darwin-arm64.tar.gz"; CF_ASSET="cloudflared-darwin-arm64.tgz" ;;
-  Darwin/x86_64) PLATFORM="darwin-x64"; NODE_ASSET="node-v${NODE_VERSION}-darwin-x64.tar.gz"; CF_ASSET="cloudflared-darwin-amd64.tgz" ;;
-  Linux/aarch64|Linux/arm64) PLATFORM="linux-arm64"; NODE_ASSET="node-v${NODE_VERSION}-linux-arm64.tar.gz"; CF_ASSET="cloudflared-linux-arm64" ;;
-  Linux/x86_64|Linux/amd64) PLATFORM="linux-x64"; NODE_ASSET="node-v${NODE_VERSION}-linux-x64.tar.gz"; CF_ASSET="cloudflared-linux-amd64" ;;
+  Darwin/arm64) PLATFORM="darwin-arm64"; NODE_ASSET="node-v${NODE_VERSION}-darwin-arm64.tar.gz" ;;
+  Darwin/x86_64) PLATFORM="darwin-x64"; NODE_ASSET="node-v${NODE_VERSION}-darwin-x64.tar.gz" ;;
+  Linux/aarch64|Linux/arm64) PLATFORM="linux-arm64"; NODE_ASSET="node-v${NODE_VERSION}-linux-arm64.tar.gz" ;;
+  Linux/x86_64|Linux/amd64) PLATFORM="linux-x64"; NODE_ASSET="node-v${NODE_VERSION}-linux-x64.tar.gz" ;;
   *) fail "unsupported platform $OS/$ARCH" ;;
 esac
 
@@ -41,7 +39,7 @@ if [ "$OS" = "Linux" ]; then
   getconf GNU_LIBC_VERSION >/dev/null 2>&1 || fail "Linux support requires glibc"
 fi
 
-mkdir -p "$PREFIX" "$BIN_DIR" "$TOOLS_DIR"
+mkdir -p "$PREFIX" "$BIN_DIR"
 
 checksums_downloaded=false
 ensure_checksums() {
@@ -177,31 +175,7 @@ fi
 printf 'Installing Pi Computer Use extension…\n'
 PATH="$RUNTIME_BIN:$BIN_DIR:$PREFIX/bin:$PATH" "$SELECTED_PI" install npm:@edward40/pi-computer-use
 
-existing_cloudflared="$(command -v cloudflared 2>/dev/null || true)"
-if [ -z "$existing_cloudflared" ] && [ -x "$TOOLS_DIR/cloudflared" ]; then
-  existing_cloudflared="$TOOLS_DIR/cloudflared"
-fi
-
-if [ -n "$existing_cloudflared" ]; then
-  CF_BIN="$existing_cloudflared"
-  printf 'Found cloudflared at %s; skipping cloudflared installation.\n' "$CF_BIN"
-else
-  printf 'Installing cloudflared %s…\n' "$CLOUDFLARED_VERSION"
-  curl -fsSL "$RELEASE_BASE/$CF_ASSET" -o "$TMP_DIR/$CF_ASSET"
-  verify_asset "$CF_ASSET"
-  if [ "$OS" = "Darwin" ]; then
-    tar -xzf "$TMP_DIR/$CF_ASSET" -C "$TMP_DIR"
-    found="$(find "$TMP_DIR" -type f -name cloudflared -print -quit)"
-    [ -n "$found" ] || fail "cloudflared archive is invalid"
-    cp "$found" "$TOOLS_DIR/cloudflared"
-  else
-    cp "$TMP_DIR/$CF_ASSET" "$TOOLS_DIR/cloudflared"
-  fi
-  chmod 755 "$TOOLS_DIR/cloudflared"
-  CF_BIN="$TOOLS_DIR/cloudflared"
-fi
-
 printf '\nStarting guided Pi Daemon setup on this board…\n'
-PATH="$RUNTIME_BIN:$BIN_DIR:$PREFIX/bin:$PATH" PI_DAEMON_PI="$SELECTED_PI" PI_DAEMON_CLOUDFLARED="$CF_BIN" "$SELECTED_DAEMON" setup --from-installer </dev/tty >/dev/tty
+PATH="$RUNTIME_BIN:$BIN_DIR:$PREFIX/bin:$PATH" PI_DAEMON_PI="$SELECTED_PI" "$SELECTED_DAEMON" setup --from-installer </dev/tty >/dev/tty
 
 printf '\nReady. Management command: %s\n' "$SELECTED_DAEMON"
