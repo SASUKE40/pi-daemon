@@ -197,7 +197,11 @@ export async function startWebServer(overrides: Partial<PiDaemonConfig> = {}): P
   }, 60_000);
   cleanup.unref();
 
-  const address = await app.listen({ host: config.listenHost, port: config.port });
+  // Containers need to listen on their network interface for an explicitly
+  // loopback-published Docker port to reach the server. Authorization still
+  // uses the configured/public request hostname rather than this bind address.
+  const bindHost = process.env.PI_DAEMON_BIND_HOST || config.listenHost;
+  const address = await app.listen({ host: bindHost, port: config.port });
   log.info("web server listening", { address });
   return {
     address,
