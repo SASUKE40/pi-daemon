@@ -25,6 +25,54 @@ The wizard installs the checksummed Pi Daemon web package from the GitHub releas
 
 The setup wizard offers two relay choices, with Cloudflare Tunnel first and selected by default for a new setup. Tailscale Serve remains available for private tailnet access and needs no API token. Cloudflare setup opens a browser consent link and displays a QR code, so a headless board can be authorized from another device without creating or pasting an API token. The CLI uses Authorization Code with PKCE, provisions the resources locally, and revokes the temporary access token when setup finishes. Saved reinstall choices contain resource IDs and user selections, not the OAuth authorization. The tunnel connector token is saved separately in a mode-0600 file and passed to cloudflared with `--token-file`, never on the process command line.
 
+## Docker installation
+
+Docker runs Pi Daemon without installing Node.js or background services on the host. The published image is [`edward40/pi-daemon`](https://hub.docker.com/r/edward40/pi-daemon) for Linux `amd64` and `arm64`. Pull the latest stable image, replace the workspace path, and start the container:
+
+```sh
+docker pull edward40/pi-daemon:latest
+docker run -d \
+  --name pi-daemon \
+  --init \
+  --restart unless-stopped \
+  --stop-timeout 20 \
+  -p 127.0.0.1:8504:8504 \
+  -v pi-daemon-config:/home/node/.config/pi-daemon \
+  -v pi-daemon-data:/home/node/.local/share/pi-daemon \
+  -v pi-agent:/home/node/.pi/agent \
+  -v /absolute/path/to/your/projects:/workspace \
+  edward40/pi-daemon:latest
+```
+
+For a Compose-managed installation, clone the repository and use the included configuration:
+
+```sh
+git clone https://github.com/SASUKE40/pi-daemon.git
+cd pi-daemon
+docker compose pull
+PI_DAEMON_WORKSPACE=/absolute/path/to/your/projects docker compose up -d
+```
+
+Open <http://127.0.0.1:8504>, create a session, then use `/login` in the web composer to authenticate a model provider. If `PI_DAEMON_WORKSPACE` is omitted, the repository directory is mounted at `/workspace`. Commands and coding tools run inside the Linux container and can access the mounted workspace, not the rest of the host filesystem.
+
+The Compose configuration persists Pi credentials and sessions, Pi Daemon configuration, and Web Push state in three named volumes. Rebuilding or running `docker compose down` preserves them. `docker compose down -v` permanently removes those volumes, including saved provider credentials and Pi sessions.
+
+Useful Docker Compose commands:
+
+```sh
+docker compose ps
+docker compose logs -f pi-daemon
+docker compose pull && docker compose up -d   # update to the latest release
+docker compose up --build -d                  # build the current checkout locally
+docker compose down
+```
+
+Set `PI_DAEMON_VERSION` to pin a release, for example `PI_DAEMON_VERSION=0.1.29 docker compose up -d`. With plain Docker, replace `latest` in the pull and run commands with `0.1.29`. Release tags publish the exact version, the matching `major.minor` tag, and `latest`; stable releases at version 1 or newer also publish a major-version tag.
+
+The published port is deliberately bound to host loopback. Do not change `127.0.0.1:8504:8504` to an all-interface port unless an authenticated proxy is enforcing access; a connected user can execute commands and modify every mounted file. The guided Cloudflare and Tailscale setup below installs host services and is intended for the one-line host installation. For Docker, keep the endpoint local or place it behind a separately managed authenticated tunnel or reverse proxy.
+
+The image supports Linux `amd64` and `arm64`, runs as the unprivileged `node` user (UID/GID 1000), and includes `git`, `curl`, OpenSSH, and `ripgrep`. On Linux hosts, make sure UID 1000 can write to the mounted workspace if Pi needs to edit it.
+
 ## Architecture
 
 ```text
@@ -148,9 +196,9 @@ npm install
 npm run check
 ```
 
-For local testing, create `~/.config/pi-daemon/config.json` or run the setup wizard, start `npm run dev:sessiond`, then run the built web server. The server always binds to `127.0.0.1`; loopback requests are allowed directly, while relay requests must carry the configured Cloudflare Access assertion or Tailscale Serve identity.
+For local testing, create `~/.config/pi-daemon/config.json` or run the setup wizard, start `npm run dev:sessiond`, then run the built web server. The server binds to `127.0.0.1` by default; loopback requests are allowed directly, while relay requests must carry the configured Cloudflare Access assertion or Tailscale Serve identity. The Docker image uses a broader bind only inside its private container network so the host's loopback-only published port can reach it.
 
-Tagged releases build the web package on Ubuntu, attach it directly to the GitHub release, mirror the pinned Node.js and cloudflared assets, and publish SHA-256 checksums plus the installer. No Apple or npm publishing credentials are required.
+CI validates the Node.js package on macOS and Linux and builds the Docker image on Linux. Tagged releases build the web package on Ubuntu, attach it directly to the GitHub release, mirror the pinned Node.js and cloudflared assets, publish SHA-256 checksums plus the installer, and publish a multi-architecture image to Docker Hub.
 
 ## Operational notes
 

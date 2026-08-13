@@ -1,0 +1,22 @@
+services:
+  pi-daemon:
+    build:
+      context: .
+    image: edward40/pi-daemon:${PI_DAEMON_VERSION:-latest}
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8504:8504"
+    volumes:
+      - pi-daemon-config:/home/node/.config/pi-daemon
+      - pi-daemon-data:/home/node/.local/share/pi-daemon
+      - pi-agent:/home/node/.pi/agent
+      - type: bind
+        source: ${PI_DAEMON_WORKSPACE:-.}
+        target: /workspace
+    stop_grace_period: 20s
+
+volumes:
+  pi-daemon-config:
+  pi-daemon-data:
+  pi-agent:

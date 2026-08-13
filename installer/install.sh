@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-VERSION="${PI_DAEMON_VERSION:-0.1.28}"
+VERSION="${PI_DAEMON_VERSION:-0.1.29}"
 NODE_VERSION="24.19.0"
 PI_VERSION="0.84.1"
 DAEMON_ASSET="edward40-pi-daemon-${VERSION}.tgz"

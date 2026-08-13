@@ -50,4 +50,26 @@ describe("release contract", () => {
     expect(workflow).not.toContain("electron");
     expect(workflow).not.toContain("NPM_TOKEN");
   });
+
+  it("keeps the Docker runtime aligned and loopback-published", async () => {
+    const manifest = JSON.parse(await readFile(join(root, "compatibility.json"), "utf8"));
+    const dockerfile = await readFile(join(root, "Dockerfile"), "utf8");
+    const compose = await readFile(join(root, "compose.yaml"), "utf8");
+    const readme = await readFile(join(root, "README.md"), "utf8");
+    const ci = await readFile(join(root, ".github", "workflows", "ci.yml"), "utf8");
+    const release = await readFile(join(root, ".github", "workflows", "release.yml"), "utf8");
+
+    expect(dockerfile).toContain(`FROM node:${manifest.node.version}-bookworm-slim`);
+    expect(dockerfile).toContain("USER node");
+    expect(dockerfile).toContain('PI_DAEMON_BIND_HOST=0.0.0.0');
+    expect(compose).toContain("image: edward40/pi-daemon:");
+    expect(compose).toContain('"127.0.0.1:8504:8504"');
+    expect(compose).toContain("pi-agent:/home/node/.pi/agent");
+    expect(readme).toContain("docker pull edward40/pi-daemon:latest");
+    expect(readme).toContain("edward40/pi-daemon:latest");
+    expect(ci).toContain("docker build --tag pi-daemon:ci .");
+    expect(release).toContain("images: edward40/pi-daemon");
+    expect(release).toContain("platforms: linux/amd64,linux/arm64");
+    expect(release).toContain("secrets.DOCKERHUB_TOKEN");
+  });
 });

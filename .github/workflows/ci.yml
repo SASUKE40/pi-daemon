@@ -24,3 +24,10 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run pack:check
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag pi-daemon:ci .
