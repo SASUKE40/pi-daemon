@@ -27,7 +27,24 @@ The setup wizard offers two relay choices, with Cloudflare Tunnel first and sele
 
 ## Docker installation
 
-Docker Compose runs Pi Daemon without installing Node.js or background services on the host. The published image is [`edward40/pi-daemon`](https://hub.docker.com/r/edward40/pi-daemon) for Linux `amd64` and `arm64`. Clone this repository, choose the host directory Pi may work in, and start the container:
+Docker runs Pi Daemon without installing Node.js or background services on the host. The published image is [`edward40/pi-daemon`](https://hub.docker.com/r/edward40/pi-daemon) for Linux `amd64` and `arm64`. Pull the latest stable image, replace the workspace path, and start the container:
+
+```sh
+docker pull edward40/pi-daemon:latest
+docker run -d \
+  --name pi-daemon \
+  --init \
+  --restart unless-stopped \
+  --stop-timeout 20 \
+  -p 127.0.0.1:8504:8504 \
+  -v pi-daemon-config:/home/node/.config/pi-daemon \
+  -v pi-daemon-data:/home/node/.local/share/pi-daemon \
+  -v pi-agent:/home/node/.pi/agent \
+  -v /absolute/path/to/your/projects:/workspace \
+  edward40/pi-daemon:latest
+```
+
+For a Compose-managed installation, clone the repository and use the included configuration:
 
 ```sh
 git clone https://github.com/SASUKE40/pi-daemon.git
@@ -40,7 +57,7 @@ Open <http://127.0.0.1:8504>, create a session, then use `/login` in the web com
 
 The Compose configuration persists Pi credentials and sessions, Pi Daemon configuration, and Web Push state in three named volumes. Rebuilding or running `docker compose down` preserves them. `docker compose down -v` permanently removes those volumes, including saved provider credentials and Pi sessions.
 
-Useful Docker commands:
+Useful Docker Compose commands:
 
 ```sh
 docker compose ps
@@ -50,7 +67,7 @@ docker compose up --build -d                  # build the current checkout local
 docker compose down
 ```
 
-Set `PI_DAEMON_VERSION` to pin a release, for example `PI_DAEMON_VERSION=0.1.28 docker compose up -d`. Release tags publish the exact version, the matching `major.minor` tag, and `latest`; stable releases at version 1 or newer also publish a major-version tag.
+Set `PI_DAEMON_VERSION` to pin a release, for example `PI_DAEMON_VERSION=0.1.29 docker compose up -d`. With plain Docker, replace `latest` in the pull and run commands with `0.1.29`. Release tags publish the exact version, the matching `major.minor` tag, and `latest`; stable releases at version 1 or newer also publish a major-version tag.
 
 The published port is deliberately bound to host loopback. Do not change `127.0.0.1:8504:8504` to an all-interface port unless an authenticated proxy is enforcing access; a connected user can execute commands and modify every mounted file. The guided Cloudflare and Tailscale setup below installs host services and is intended for the one-line host installation. For Docker, keep the endpoint local or place it behind a separately managed authenticated tunnel or reverse proxy.
 
