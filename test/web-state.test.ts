@@ -12,6 +12,35 @@ describe("React web state", () => {
     expect(finished.timeline).toEqual([{ role: "assistant", content: [{ type: "text", text: "Hello" }] }]);
   });
 
+  it("updates refreshed models without disturbing live session state", () => {
+    const initial = {
+      connected: true,
+      daemonConnected: true,
+      sessions: [],
+      current: {
+        id: "session-1",
+        cwd: "/workspace",
+        thinking: "medium" as const,
+        streaming: true,
+        messages: [],
+        availableModels: [],
+        slashCommands: [],
+      },
+      timeline: [{ __live: true }],
+      status: "running" as const,
+      queue: { steering: ["adjust"], followUp: ["next"] },
+    };
+    const updated = appReducer(initial, {
+      type: "session.models",
+      models: [{ provider: "ollama", id: "qwen2.5-coder:7b" }],
+    });
+
+    expect(updated.current?.availableModels).toEqual([{ provider: "ollama", id: "qwen2.5-coder:7b" }]);
+    expect(updated.timeline).toBe(initial.timeline);
+    expect(updated.queue).toBe(initial.queue);
+    expect(updated.status).toBe("running");
+  });
+
   it("decodes a URL-safe VAPID application key", () => {
     expect(Array.from(decodeApplicationServerKey("AQIDBA"))).toEqual([1, 2, 3, 4]);
   });

@@ -21,6 +21,7 @@ import type { ImageContent } from "@earendil-works/pi-ai/compat";
 import { marked, Renderer, type Tokens } from "marked";
 import { activeRelay, loadConfig } from "./config.js";
 import { log } from "./log.js";
+import { createModelRuntime, refreshModels } from "./models.js";
 import { getAppPaths, safeSocketFallback } from "./paths.js";
 import { PushService, type PushNotification } from "./push.js";
 import { getSlashCommands } from "./slash-commands.js";
@@ -271,8 +272,20 @@ export class SessionDaemon {
       case "session.setModel": {
         const runtime = await this.getOrOpen(command.sessionId);
         if (isRuntimeRunning(runtime)) throw new Error("Cannot change model while running");
+        await this.refreshModels(runtime);
         await this.setModel(runtime, command.provider, command.modelId);
         this.broadcast(event({ type: "session.snapshot", requestId: command.requestId, session: snapshot(runtime) }));
+        return;
+      }
+      case "session.refreshModels": {
+        const runtime = await this.getOrOpen(command.sessionId);
+        await this.refreshModels(runtime);
+        this.broadcast(event({
+          type: "session.models",
+          requestId: command.requestId,
+          sessionId: runtime.session.sessionId,
+          models: availableModels(runtime.session),
+        }));
         return;
       }
       case "session.setThinking": {
@@ -327,6 +340,7 @@ export class SessionDaemon {
         return;
       }
       case "scoped-models": {
+        await this.refreshModels(runtime);
         if (command.payload?.modelIds) {
           const selected = command.payload.modelIds.flatMap((id) => {
             const separator = id.indexOf("/");
@@ -464,8 +478,9 @@ export class SessionDaemon {
       case "reload": {
         if (isRuntimeRunning(runtime) || session.isCompacting) throw new Error("Wait for the current operation to finish before reloading");
         await session.reload();
+        await this.refreshModels(runtime);
         this.broadcast(event({ type: "session.snapshot", requestId: command.requestId, session: snapshot(runtime) }));
-        reply({ kind: "message", message: "Reloaded extensions, skills, prompts, settings, themes, and context files" });
+        reply({ kind: "message", message: "Reloaded models, extensions, skills, prompts, settings, themes, and context files" });
         return;
       }
       case "quit": {
@@ -683,6 +698,10 @@ export class SessionDaemon {
     await runtime.session.setModel(model);
   }
 
+  private async refreshModels(runtime: RuntimeSession): Promise<void> {
+    await refreshModels(runtime.session.modelRuntime);
+  }
+
   private write(socket: Socket, serverEvent: ServerEvent): void {
     if (socket.writable) socket.write(`${JSON.stringify(serverEvent)}\n`);
   }
@@ -704,13 +723,17 @@ function snapshot(runtime: RuntimeSession): SessionSnapshot {
     thinking: session.thinkingLevel as ThinkingLevel,
     streaming: isRuntimeRunning(runtime),
     messages: session.state.messages,
-    availableModels: session.modelRuntime.getAvailableSnapshot().map((item) => ({
-      provider: item.provider,
-      id: item.id,
-      ...(item.name ? { name: item.name } : {}),
-    })),
+    availableModels: availableModels(session),
     slashCommands: getSlashCommands(session),
   };
+}
+
+function availableModels(session: AgentSession): SessionSnapshot["availableModels"] {
+  return session.modelRuntime.getAvailableSnapshot().map((item) => ({
+    provider: item.provider,
+    id: item.id,
+    ...(item.name ? { name: item.name } : {}),
+  }));
 }
 
 function commandPathArgument(value: string | undefined): string | undefined {
@@ -810,6 +833,7 @@ function isRuntimeRunning(runtime: RuntimeSession): boolean {
 
 async function createRuntimeSession(manager: SessionManager): Promise<AgentSession> {
   const config = await loadConfig();
+  const modelRuntime = await createModelRuntime(config);
   const settingsManager = SettingsManager.create(manager.getCwd(), config.agentDir);
   const resourceLoader = new DefaultResourceLoader({
     cwd: manager.getCwd(),
@@ -820,6 +844,7 @@ async function createRuntimeSession(manager: SessionManager): Promise<AgentSessi
   const { session } = await createAgentSession({
     cwd: manager.getCwd(),
     agentDir: config.agentDir,
+    modelRuntime,
     sessionManager: manager,
     settingsManager,
     resourceLoader,

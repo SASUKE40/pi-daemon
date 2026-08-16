@@ -82,6 +82,7 @@ type AppAction =
   | { type: "daemon.ready" }
   | { type: "session.list"; sessions: SessionSummary[] }
   | { type: "session.snapshot"; session: SessionSnapshot }
+  | { type: "session.models"; models: SessionSnapshot["availableModels"] }
   | { type: "session.closed" }
   | { type: "session.event"; value: unknown }
   | { type: "session.status"; status: SessionStatus }
@@ -133,6 +134,9 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         queue: { steering: [], followUp: [] },
       };
     }
+    case "session.models": return state.current
+      ? { ...state, current: { ...state.current, availableModels: action.models } }
+      : state;
     case "session.closed": {
       const { current: _current, ...rest } = state;
       return { ...rest, timeline: [], status: "idle", queue: { steering: [], followUp: [] } };
@@ -258,6 +262,10 @@ export function PiDaemonApp(): ReactNode {
           send({ type: "session.list" });
           break;
         }
+        case "session.models":
+          daemonUnavailableRef.current = false;
+          if (message.sessionId === stateRef.current.current?.id) dispatch({ type: "session.models", models: message.models });
+          break;
         case "session.event":
           daemonUnavailableRef.current = false;
           if (message.sessionId === stateRef.current.current?.id) dispatch({ type: "session.event", value: message.event });
@@ -433,20 +441,21 @@ export function PiDaemonApp(): ReactNode {
       }
       if (builtin.name === "model") {
         if (!builtin.arguments) {
-          if (!state.current.availableModels.length) {
-            showError("No models are available. Configure a provider in Pi's local terminal, then reload this session.");
-            return;
-          }
           setDraft("");
           setModelPickerRequest((request) => request + 1);
           return;
         }
-        const model = state.current.availableModels.find((candidate) => `${candidate.provider}/${candidate.id}` === builtin.arguments);
-        if (!model) {
-          showError(`Unknown model: ${builtin.arguments}`);
+        const separator = builtin.arguments.indexOf("/");
+        if (separator < 1 || separator === builtin.arguments.length - 1) {
+          showError("Use /model provider/model-id.");
           return;
         }
-        if (!send({ type: "session.setModel", sessionId: state.current.id, provider: model.provider, modelId: model.id })) {
+        if (!send({
+          type: "session.setModel",
+          sessionId: state.current.id,
+          provider: builtin.arguments.slice(0, separator),
+          modelId: builtin.arguments.slice(separator + 1),
+        })) {
           showError("Pi Daemon is reconnecting. Try changing the model again in a moment.");
           return;
         }
@@ -623,6 +632,11 @@ export function PiDaemonApp(): ReactNode {
           }))}
           onSubmit={submit}
           onAbort={() => { if (state.current) send({ type: "session.abort", sessionId: state.current.id }); }}
+          onRefreshModels={() => {
+            if (state.current && !send({ type: "session.refreshModels", sessionId: state.current.id })) {
+              showError("Pi Daemon is reconnecting. Try opening the model picker again in a moment.");
+            }
+          }}
           onModel={(model) => { if (state.current) send({ type: "session.setModel", sessionId: state.current.id, provider: model.provider, modelId: model.id }); }}
           onThinking={(thinking) => { if (state.current) send({ type: "session.setThinking", sessionId: state.current.id, thinking }); }}
         />
@@ -957,6 +971,7 @@ function Composer(props: {
   onRemoveAttachment(id: string): void;
   onSubmit(textOverride?: string): void;
   onAbort(): void;
+  onRefreshModels(): void;
   onModel(model: { provider: string; id: string }): void;
   onThinking(thinking: ThinkingLevel): void;
 }): ReactNode {
@@ -984,9 +999,9 @@ function Composer(props: {
   const commandMenuOpen = Boolean(props.current && commandQuery !== undefined);
   useEffect(() => setActiveCommand(0), [commandQuery, props.current?.id]);
   useEffect(() => {
-    if (!props.modelPickerRequest || !modelItems.length) return;
+    if (!props.modelPickerRequest) return;
     window.requestAnimationFrame(() => modelTriggerRef.current?.click());
-  }, [modelItems.length, props.modelPickerRequest]);
+  }, [props.modelPickerRequest]);
 
   const chooseCommand = (command: SlashCommand, execute: boolean) => {
     if (command.source === "builtin" || (execute && command.source === "extension")) {
@@ -1064,29 +1079,28 @@ function Composer(props: {
         <div className="composerActions">
           <label className="attachButton" title="Add images"><span aria-hidden="true">＋</span><span className="srOnly">Add images</span><input hidden type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { void props.onUpload(event.target.files); event.target.value = ""; }} /></label>
           {props.current && <div className="composerControls">
-            {modelItems.length > 0 && (
-              <Combobox.Root
-                items={modelItems}
-                value={selectedModel}
-                onValueChange={(model) => model && props.onModel(model)}
-                isItemEqualToValue={(item, value) => item.value === value.value}
-                itemToStringLabel={(item) => item.label}
-              >
-                <Combobox.Label className="srOnly">Model</Combobox.Label>
-                <Combobox.Trigger ref={modelTriggerRef} className="controlButton modelControl"><ModelProviderIcon provider={selectedModel?.provider || props.current?.model?.provider} /><Combobox.Value placeholder="Choose model" /><Combobox.Icon className="selectorIcon"><ChevronIcon /></Combobox.Icon></Combobox.Trigger>
-                <Combobox.Portal>
-                  <Combobox.Positioner className="popupPositioner" side="top" sideOffset={8} align="end">
-                    <Combobox.Popup className="comboboxPopup" aria-label="Choose model">
-                      <Combobox.Input className="popupSearch" placeholder="Search models…" autoFocus />
-                      <Combobox.Empty className="popupEmpty">No matching models.</Combobox.Empty>
-                      <Combobox.List className="popupList">
-                        {(model: (typeof modelItems)[number]) => <Combobox.Item key={model.value} value={model} className="popupItem"><Combobox.ItemIndicator>✓</Combobox.ItemIndicator><span>{model.label}</span><small>{model.provider}/{model.id}</small></Combobox.Item>}
-                      </Combobox.List>
-                    </Combobox.Popup>
-                  </Combobox.Positioner>
-                </Combobox.Portal>
-              </Combobox.Root>
-            )}
+            <Combobox.Root
+              items={modelItems}
+              value={selectedModel}
+              onOpenChange={(open) => { if (open) props.onRefreshModels(); }}
+              onValueChange={(model) => model && props.onModel(model)}
+              isItemEqualToValue={(item, value) => item.value === value.value}
+              itemToStringLabel={(item) => item.label}
+            >
+              <Combobox.Label className="srOnly">Model</Combobox.Label>
+              <Combobox.Trigger ref={modelTriggerRef} className="controlButton modelControl"><ModelProviderIcon provider={selectedModel?.provider || props.current?.model?.provider} /><Combobox.Value placeholder="Choose model" /><Combobox.Icon className="selectorIcon"><ChevronIcon /></Combobox.Icon></Combobox.Trigger>
+              <Combobox.Portal>
+                <Combobox.Positioner className="popupPositioner" side="top" sideOffset={8} align="end">
+                  <Combobox.Popup className="comboboxPopup" aria-label="Choose model">
+                    <Combobox.Input className="popupSearch" placeholder="Search models…" autoFocus />
+                    <Combobox.Empty className="popupEmpty">No models available. Add a provider to Pi's models.json or use /login.</Combobox.Empty>
+                    <Combobox.List className="popupList">
+                      {(model: (typeof modelItems)[number]) => <Combobox.Item key={model.value} value={model} className="popupItem"><Combobox.ItemIndicator>✓</Combobox.ItemIndicator><span>{model.label}</span><small>{model.provider}/{model.id}</small></Combobox.Item>}
+                    </Combobox.List>
+                  </Combobox.Popup>
+                </Combobox.Positioner>
+              </Combobox.Portal>
+            </Combobox.Root>
             <ControlSelect
               label="Thinking"
               icon={<BrainIcon />}

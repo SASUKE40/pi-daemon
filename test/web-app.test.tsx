@@ -157,14 +157,21 @@ describe("PiDaemonApp", () => {
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.setThinking", sessionId: "session-1", thinking: "high" }));
 
     await user.click(screen.getByRole("combobox", { name: "Model" }));
+    await waitFor(() => expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.refreshModels", sessionId: "session-1" })));
     await user.click(await screen.findByRole("option", { name: /Claude test/ }));
     expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.setModel", sessionId: "session-1", provider: "anthropic", modelId: "claude-test" }));
 
     const textarea = screen.getByRole("textbox", { name: "Message Pi" });
     await user.type(textarea, "/");
     await user.click(await screen.findByRole("option", { name: /\/model.*Select model.*Built-in/ }));
+    await waitFor(() => expect(commands(socket).filter((command) => command.type === "session.refreshModels")).toHaveLength(2));
     expect(await screen.findByRole("option", { name: /Test model/ })).toBeTruthy();
     await user.keyboard("{Escape}");
+
+    await user.clear(textarea);
+    await user.type(textarea, "/model custom/open/model");
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(commands(socket)).toContainEqual(expect.objectContaining({ type: "session.setModel", provider: "custom", modelId: "open/model" }));
 
     await user.type(textarea, "Run the tests");
     fireEvent.keyDown(textarea, { key: "Enter" });

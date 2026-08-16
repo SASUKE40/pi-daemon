@@ -30,6 +30,7 @@ describe("parseClientCommand", () => {
       { type: "session.steer", sessionId: "s", text: "adjust", attachments: [{ data: "YWJj", mimeType: "image/jpeg", name: "photo.jpg" }] },
       { type: "session.followUp", sessionId: "s", text: "next" },
       { type: "session.abort", sessionId: "s" },
+      { type: "session.refreshModels", sessionId: "s" },
       { type: "session.setModel", sessionId: "s", provider: "anthropic", modelId: "claude" },
       { type: "session.setThinking", sessionId: "s", thinking: "xhigh" },
       { type: "session.command", sessionId: "s", command: "tree", payload: { targetId: "entry-1" } },

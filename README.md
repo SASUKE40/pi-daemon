@@ -67,11 +67,44 @@ docker compose up --build -d                  # build the current checkout local
 docker compose down
 ```
 
-Set `PI_DAEMON_VERSION` to pin a release, for example `PI_DAEMON_VERSION=0.1.29 docker compose up -d`. With plain Docker, replace `latest` in the pull and run commands with `0.1.29`. Release tags publish the exact version, the matching `major.minor` tag, and `latest`; stable releases at version 1 or newer also publish a major-version tag.
+Set `PI_DAEMON_VERSION` to pin a release, for example `PI_DAEMON_VERSION=0.1.30 docker compose up -d`. With plain Docker, replace `latest` in the pull and run commands with `0.1.30`. Release tags publish the exact version, the matching `major.minor` tag, and `latest`; stable releases at version 1 or newer also publish a major-version tag.
 
 The published port is deliberately bound to host loopback. Do not change `127.0.0.1:8504:8504` to an all-interface port unless an authenticated proxy is enforcing access; a connected user can execute commands and modify every mounted file. The guided Cloudflare and Tailscale setup below installs host services and is intended for the one-line host installation. For Docker, keep the endpoint local or place it behind a separately managed authenticated tunnel or reverse proxy.
 
 The image supports Linux `amd64` and `arm64`, runs as the unprivileged `node` user (UID/GID 1000), and includes `git`, `curl`, OpenSSH, and `ripgrep`. On Linux hosts, make sure UID 1000 can write to the mounted workspace if Pi needs to edit it.
+
+## Custom models
+
+Pi Daemon loads Pi's standard custom model configuration from `<agentDir>/models.json` (normally `~/.pi/agent/models.json`). Custom providers can point at Ollama, LM Studio, vLLM, an OpenAI-compatible proxy, or another API supported by Pi. For example:
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://127.0.0.1:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "compat": {
+        "supportsDeveloperRole": false,
+        "supportsReasoningEffort": false
+      },
+      "models": [
+        { "id": "qwen2.5-coder:7b", "name": "Qwen 2.5 Coder (local)" }
+      ]
+    }
+  }
+}
+```
+
+Open the model picker or run `/model` after saving the file. Pi Daemon reloads `models.json` before showing or selecting a model, so a service restart is not required. Invalid configuration is reported in the web UI instead of being silently ignored. Use `/login` to store provider credentials in `auth.json`; see Pi's [custom model reference](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/models.md) for the full provider, model, headers, compatibility, and environment-value schema.
+
+The Docker examples already persist `/home/node/.pi/agent`, so a `models.json` created there survives container replacement. To manage the file directly from the host, add a read-only file mount alongside the existing `pi-agent` volume:
+
+```sh
+-v /absolute/path/to/models.json:/home/node/.pi/agent/models.json:ro
+```
+
+When a model server runs on the Docker host, use an address reachable from the container rather than `127.0.0.1`, which refers to the container itself.
 
 ## Architecture
 

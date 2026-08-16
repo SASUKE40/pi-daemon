@@ -72,6 +72,7 @@ export type ClientCommand =
   | (CommandBase & { type: "session.rename"; sessionId: string; name: string })
   | (CommandBase & { type: "session.prompt" | "session.steer" | "session.followUp"; sessionId: string; text: string; attachments?: ImageAttachment[] })
   | (CommandBase & { type: "session.abort"; sessionId: string })
+  | (CommandBase & { type: "session.refreshModels"; sessionId: string })
   | (CommandBase & { type: "session.setModel"; sessionId: string; provider: string; modelId: string })
   | (CommandBase & { type: "session.setThinking"; sessionId: string; thinking: ThinkingLevel })
   | (CommandBase & { type: "session.command"; sessionId: string; command: BuiltinSlashCommandName; arguments?: string; payload?: BuiltinCommandPayload });
@@ -104,6 +105,7 @@ export type ServerEvent =
   | { type: "ready"; protocolVersion: typeof PROTOCOL_VERSION; requestId?: string; activeSessionId?: string; activeSessionIds?: string[] }
   | { type: "session.list"; protocolVersion: typeof PROTOCOL_VERSION; requestId: string; sessions: SessionSummary[] }
   | { type: "session.snapshot"; protocolVersion: typeof PROTOCOL_VERSION; requestId?: string; session: SessionSnapshot }
+  | { type: "session.models"; protocolVersion: typeof PROTOCOL_VERSION; requestId: string; sessionId: string; models: SessionSnapshot["availableModels"] }
   | { type: "session.event"; protocolVersion: typeof PROTOCOL_VERSION; sessionId: string; seq: number; event: unknown }
   | { type: "session.status"; protocolVersion: typeof PROTOCOL_VERSION; sessionId: string; seq: number; status: "idle" | "running" | "aborting" | "error"; message?: string }
   | { type: "queue.update"; protocolVersion: typeof PROTOCOL_VERSION; sessionId: string; seq: number; steering: readonly string[]; followUp: readonly string[] }
@@ -113,7 +115,7 @@ export type ServerEvent =
 
 const commandTypes = new Set([
   "session.list", "session.create", "session.open", "session.rename", "session.prompt", "session.steer",
-  "session.followUp", "session.abort", "session.setModel", "session.setThinking", "session.command",
+  "session.followUp", "session.abort", "session.refreshModels", "session.setModel", "session.setThinking", "session.command",
 ]);
 const builtinCommandNames = new Set<BuiltinSlashCommandName>([
   "settings", "model", "scoped-models", "export", "import", "share", "copy", "name", "session",

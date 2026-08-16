@@ -161,6 +161,19 @@ describe("parallel session dispatch", () => {
     });
     expect(client.events.some((item) => item.type === "session.event")).toBe(false);
   });
+
+  it("refreshes a session's model configuration and returns a new snapshot", async () => {
+    const { client, harness } = await startHarness();
+    const sessionId = await createTask(client, join(root as string, "models"), "create");
+
+    client.send(command({ type: "session.refreshModels", requestId: "refresh-models", sessionId }));
+    await expect(client.waitFor((item) => item.type === "session.models" && item.requestId === "refresh-models")).resolves.toMatchObject({
+      type: "session.models",
+      sessionId,
+      models: [],
+    });
+    expect(harness.session(sessionId).refreshModelCalls).toBe(1);
+  });
 });
 
 async function startHarness(): Promise<{ client: IpcTestClient; harness: FakeSessionHarness; push: { send: ReturnType<typeof vi.fn> } }> {
@@ -361,12 +374,15 @@ class FakeAgentSession {
   readonly steering: string[] = [];
   readonly followUps: string[] = [];
   abortCalls = 0;
+  refreshModelCalls = 0;
   readonly state = { messages: [] as unknown[] };
   readonly model = undefined;
   readonly promptTemplates = [];
   readonly modelRuntime = {
     getAvailableSnapshot: () => [],
     getModel: () => undefined,
+    getError: () => undefined,
+    refresh: async () => { this.refreshModelCalls += 1; return { aborted: false, errors: new Map() }; },
   };
   readonly extensionRunner = { getRegisteredCommands: () => [] };
   readonly settingsManager = { getEnableSkillCommands: () => false };
