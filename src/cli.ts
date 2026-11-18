@@ -21,7 +21,7 @@ import { installCloudflared, isExecutable } from "./cloudflared-install.js";
 import { activeRelay, defaultConfig, loadConfig, publicHostname as configuredHostname, saveConfig, type PiDaemonConfig, type RelayKind, type TailscaleConfig } from "./config.js";
 import { getAppPaths } from "./paths.js";
 import { loadSetupMemo, removeRuntimeConfigPreservingSetupMemo, saveSetupMemo, type SetupMemo } from "./setup-memo.js";
-import { currentServiceCommands, installUserServices, restartService, stopAndRemoveUserServices } from "./services.js";
+import { currentServiceCommands, installUserServices, restartService, servicesManagedExternally, stopAndRemoveUserServices } from "./services.js";
 import { TerminalPrompter } from "./terminal.js";
 import { detectedTailscaleLogin, hasServeConfiguration, tailscaleHostname, tailscaleServeArgs, tailscaleTarget, validateTailscaleLogin, type TailscaleStatus } from "./tailscale.js";
 import { CLOUDFLARED_VERSION, PI_VERSION, VERSION } from "./version.js";
@@ -270,6 +270,7 @@ async function restart(target: "sessiond" | "web" | "tunnel" | "all"): Promise<v
 }
 
 async function update(): Promise<void> {
+  if (servicesManagedExternally()) throw new Error("This installation is managed by Nix. Update the pi-daemon flake input and run home-manager switch instead.");
   const paths = getAppPaths();
   await mkdir(paths.runtimeDir, { recursive: true, mode: 0o700 });
   const target = join(paths.runtimeDir, `install-${process.pid}.sh`);
@@ -314,6 +315,7 @@ async function uninstall(deleteCloudflare: boolean): Promise<void> {
     prompt.print(preserveSetupMemo
       ? `Pi Daemon removed. ~/.pi/agent and reinstall choices in ${paths.setupMemoFile} were preserved.`
       : "Pi Daemon removed. ~/.pi/agent authentication and sessions were preserved.");
+    if (servicesManagedExternally()) prompt.print("The services were stopped but are still declared by Home Manager. Set services.pi-daemon.enable = false and run home-manager switch to remove them.");
   } finally {
     if (releaseCloudflare) await releaseCloudflare().catch((error) => prompt.print(`Warning: could not revoke temporary Cloudflare authorization: ${error instanceof Error ? error.message : String(error)}`));
     prompt.close();

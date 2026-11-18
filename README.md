@@ -73,6 +73,41 @@ The published port is deliberately bound to host loopback. Do not change `127.0.
 
 The image supports Linux `amd64` and `arm64`, runs as the unprivileged `node` user (UID/GID 1000), and includes `git`, `curl`, OpenSSH, and `ripgrep`. On Linux hosts, make sure UID 1000 can write to the mounted workspace if Pi needs to edit it.
 
+## Nix flake and Home Manager
+
+The repository is a Nix flake for Linux (`x86_64` and `aarch64`) and Apple silicon macOS. It builds Pi Daemon from source with Node.js 24 and bundles the matching Pi CLI. Try it without installing:
+
+```sh
+nix run github:SASUKE40/pi-daemon -- --version
+```
+
+To run the services declaratively, add the flake to the inputs of your Home Manager flake:
+
+```nix
+{
+  inputs.pi-daemon.url = "github:SASUKE40/pi-daemon";
+  inputs.pi-daemon.inputs.nixpkgs.follows = "nixpkgs";
+}
+```
+
+Then import the module and enable the service:
+
+```nix
+{ inputs, ... }:
+{
+  imports = [ inputs.pi-daemon.homeManagerModules.default ];
+
+  services.pi-daemon = {
+    enable = true;
+    cloudflared.enable = true; # only needed for the Cloudflare Tunnel relay
+  };
+}
+```
+
+`home-manager switch` installs `pi-daemon` and declares the `pi-daemon-sessiond` and `pi-daemon-web` services (systemd user units on Linux, `com.edward40.pi-daemon.*` launch agents on macOS). The web UI listens on <http://127.0.0.1:8504>. Run `pi-daemon setup` once to choose Cloudflare Tunnel or Tailscale Serve; with the module enabled, setup restarts the declared services instead of writing its own. The cloudflared connector starts once setup has written its tunnel token.
+
+Other options: `package`, `cloudflared.package`, `extraPackages` (tools on the session daemon's `PATH`, by default `bash`, `coreutils`, `git`, and `ripgrep`, followed by your Home Manager profile), and `environment`. Update by bumping the flake input (`nix flake update pi-daemon`) rather than with `pi-daemon update`. The flake also provides `overlays.default`, which adds `pkgs.pi-daemon`.
+
 ## Custom models
 
 Pi Daemon loads Pi's standard custom model configuration from `<agentDir>/models.json` (normally `~/.pi/agent/models.json`). Custom providers can point at Ollama, LM Studio, vLLM, an OpenAI-compatible proxy, or another API supported by Pi. For example:

@@ -51,6 +51,37 @@ describe("release contract", () => {
     expect(workflow).not.toContain("NPM_TOKEN");
   });
 
+  it("keeps the Nix flake aligned with the npm package and service names", async () => {
+    const flake = await readFile(join(root, "flake.nix"), "utf8");
+    const nixPackage = await readFile(join(root, "nix", "package.nix"), "utf8");
+    const module = await readFile(join(root, "nix", "home-manager.nix"), "utf8");
+    const services = await readFile(join(root, "src", "services.ts"), "utf8");
+    const readme = await readFile(join(root, "README.md"), "utf8");
+
+    expect(flake).toContain("homeManagerModules");
+    expect(flake).toContain("default = self.homeManagerModules.pi-daemon;");
+    expect(nixPackage).toContain("manifest = lib.importJSON ../package.json;");
+    expect(nixPackage).toContain("inherit (manifest) version;");
+    expect(nixPackage).toContain("importNpmLock");
+    expect(nixPackage).not.toMatch(/npmDepsHash/u);
+    expect(nixPackage).toContain("nodejs_24");
+    for (const file of ["package-lock.json", "tsconfig.build.json", "vite.config.ts", "src", "web"]) {
+      expect(nixPackage).toContain(`../${file}`);
+    }
+    expect(module).toContain('PI_DAEMON_MANAGED_SERVICES = "1";');
+    expect(services).toContain('env.PI_DAEMON_MANAGED_SERVICES === "1"');
+    for (const name of ["sessiond", "web", "cloudflared"]) {
+      expect(module).toContain(`pi-daemon-${name} =`);
+      expect(services).toContain(`pi-daemon-${name}.service`);
+      expect(services).toContain(`com.edward40.pi-daemon.${name}`);
+    }
+    expect(module).toContain('Label = "com.edward40.pi-daemon.${name}";');
+    expect(module).toContain("${packageDir}/dist/sessiond.js");
+    expect(module).toContain("${packageDir}/dist/web.js");
+    expect(readme).toContain("inputs.pi-daemon.url = \"github:SASUKE40/pi-daemon\";");
+    expect(readme).toContain("inputs.pi-daemon.homeManagerModules.default");
+  });
+
   it("keeps the Docker runtime aligned and loopback-published", async () => {
     const manifest = JSON.parse(await readFile(join(root, "compatibility.json"), "utf8"));
     const dockerfile = await readFile(join(root, "Dockerfile"), "utf8");

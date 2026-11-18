@@ -64,10 +64,24 @@ export function renderLaunchAgents(commands: ServiceCommands, includeCloudflared
   return agents;
 }
 
+/** Set by the Nix Home Manager module, which owns the unit files and the installed package. */
+export function servicesManagedExternally(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.PI_DAEMON_MANAGED_SERVICES === "1";
+}
+
 export async function installUserServices(config: PiDaemonConfig, commands: ServiceCommands): Promise<void> {
   const includeCloudflared = activeRelay(config) === "cloudflare";
   const paths = getAppPaths();
   await mkdir(paths.logDir, { recursive: true, mode: 0o700 });
+  if (servicesManagedExternally()) {
+    try {
+      await restartService("all", includeCloudflared);
+    } catch (error) {
+      if (!includeCloudflared) throw error;
+      throw new Error(`Unable to restart the Nix-managed services. The Cloudflare relay requires services.pi-daemon.cloudflared.enable = true in Home Manager. ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return;
+  }
   if (process.platform === "linux") {
     const directory = join(homedir(), ".config", "systemd", "user");
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -122,6 +136,17 @@ async function bootstrapLaunchAgent(domain: string, target: string): Promise<voi
 }
 
 export async function stopAndRemoveUserServices(): Promise<void> {
+  if (servicesManagedExternally()) {
+    if (process.platform === "linux") {
+      await execFileAsync("systemctl", ["--user", "stop", "pi-daemon-sessiond.service", "pi-daemon-web.service", "pi-daemon-cloudflared.service"]).catch(() => undefined);
+    } else if (process.platform === "darwin") {
+      const domain = `gui/${process.getuid?.() ?? 0}`;
+      for (const label of ["com.edward40.pi-daemon.sessiond", "com.edward40.pi-daemon.web", "com.edward40.pi-daemon.cloudflared"]) {
+        await execFileAsync("launchctl", ["bootout", `${domain}/${label}`]).catch(() => undefined);
+      }
+    }
+    return;
+  }
   if (process.platform === "linux") {
     await execFileAsync("systemctl", ["--user", "disable", "--now", "pi-daemon-sessiond.service", "pi-daemon-web.service", "pi-daemon-cloudflared.service"]).catch(() => undefined);
     const directory = join(homedir(), ".config", "systemd", "user");
