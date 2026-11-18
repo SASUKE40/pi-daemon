@@ -3,7 +3,7 @@ set -eu
 
 VERSION="${PI_DAEMON_VERSION:-0.1.30}"
 NODE_VERSION="24.19.0"
-PI_VERSION="0.84.1"
+PI_VERSION="1.5.2"
 DAEMON_ASSET="edward40-pi-daemon-${VERSION}.tgz"
 RELEASE_BASE="https://github.com/SASUKE40/pi-daemon/releases/download/v${VERSION}"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/pi-daemon"

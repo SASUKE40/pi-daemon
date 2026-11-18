@@ -47,8 +47,8 @@
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
-    "@earendil-works/pi-ai": "0.84.1",
-    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@earendil-works/pi-ai": "1.5.2",
+    "@earendil-works/pi-coding-agent": "1.5.2",
     "@fastify/multipart": "10.1.0",
     "@fastify/static": "10.1.2",
     "@fastify/websocket": "11.3.0",
@@ -82,7 +82,7 @@
     "vitest": "3.2.7"
   },
   "overrides": {
-    "undici": "8.9.0"
+    "undici": "8.12.3"
   },
   "allowScripts": {
     "@google/genai": false,
